@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- WPF 와 WinForms 타입 이름이 겹쳐서 암시적 using 끔 -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>HugWatch</AssemblyName>
+    <RootNamespace>HugWatch</RootNamespace>
+    <StartupObject>HugWatch.Program</StartupObject>
+    <ApplicationIcon>HugWatch.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+    <Product>HugWatch</Product>
+    <!-- 설치 없이 exe 하나 (.NET 런타임 포함) -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+</Project>

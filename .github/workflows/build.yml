@@ -1,0 +1,56 @@
+# 맥·윈도우 빌드 + 셀프체크. v* 태그를 올리면 Releases 에 첨부
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: 빌드 (exe 하나, .NET 포함)
+        run: dotnet publish windows/HugWatch.csproj -c Release -o out
+      - name: 셀프체크
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath out/HugWatch.exe -ArgumentList '--selftest' -Wait -PassThru
+          Get-Content out/selftest.log
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HugWatch-windows
+          path: out/HugWatch.exe
+      - name: Releases 에 첨부
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/HugWatch.exe
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: 빌드 + 셀프체크
+        run: ./build.sh
+      - name: zip
+        run: ditto -c -k --keepParent HugWatch.app HugWatch-mac.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HugWatch-mac
+          path: HugWatch-mac.zip
+      - name: Releases 에 첨부
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: HugWatch-mac.zip
