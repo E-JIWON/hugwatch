@@ -81,7 +81,11 @@ public class Watcher
             sources.Add(("PR 리뷰", () => Sources.MyPRs(s),
                 (old, i) => old != null && Logic.PrChange(old, i.Fp) is { } c ? ($"{Logic.Ticket(i.Title) ?? "PR"} · {c}", i.Detail == "" ? i.Title : i.Detail) : null));
         if (s.Daou != "" && s.DaouId != "" && Creds.Has("daou-password"))
-            sources.Add(("메일", () => Sources.Mail(s), (old, i) => old == null ? ($"새 메일 · {i.Sub}", i.Title) : null));
+        {
+            // 내 PR 의 Bitbucket 알림 메일은 PR 탭이 이미 알려줘서 알림 안 함 (목록엔 남김)
+            var prs = All("PR 리뷰").Select(p => p.Title).Where(t => t != "").ToList();
+            sources.Add(("메일", () => Sources.Mail(s), (old, i) => old == null && !prs.Any(t => i.Title.Contains(t)) ? ($"새 메일 · {i.Sub}", i.Title) : null));
+        }
         if (s.Email != "" && s.Jira != "" && Creds.Has("jira-token"))
             sources.Add(("Jira 할당", () => Sources.JiraAssigned(s), (old, i) => old == null ? ($"{i.Id} 새로 할당됨", i.Title) : null));
         sources.Add(("내 작업 병합", async () =>

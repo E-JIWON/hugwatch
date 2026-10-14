@@ -13,9 +13,11 @@ let store: UserDefaults = {
 
 // 설정 — 설정 창에서 넣고 이 맥의 UserDefaults 에만 저장. 토큰·비밀번호는 키체인 (코드엔 아무 값도 없음)
 func pref(_ k: String) -> String { (store.string(forKey: k) ?? "").trimmingCharacters(in: .whitespaces) }
-func site(_ s: String) -> String {  // "company.atlassian.net" → "https://company.atlassian.net"
-    let t = s.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-    return t.isEmpty || t.hasPrefix("http") ? t : "https://" + t
+// "company.atlassian.net" · "http://hug.company.com/login?…" → "https://호스트" (주소창 통째로 붙여넣어도, 비밀번호는 https 로만)
+func site(_ s: String) -> String {
+    let t = s.trimmingCharacters(in: .whitespaces)
+    guard let c = URLComponents(string: t.contains("://") ? t : "https://" + t), let h = c.host, !h.isEmpty else { return "" }
+    return "https://" + h + (c.port.map { ":\($0)" } ?? "")
 }
 var email: String { pref("email") }              // Atlassian 계정 (Jira·Bitbucket 공통)
 var jira: String { site(pref("jiraSite")) }
@@ -197,7 +199,7 @@ func jiraAssigned() async throws -> [Item] {
                     .init(name: "fields", value: "summary,status"), .init(name: "maxResults", value: "50")]
     let auth = "\(email):\(try secret("jira-token"))"
     // 인증 실패해도 검색은 익명으로 200 + 빈 목록을 줘서, 로그인부터 확인
-    do { _ = try await getJSON(URL(string: "\(jira)/rest/api/3/myself")!, auth: auth) } catch { throw Msg("Jira 인증 실패 — 토큰 다시 넣기") }
+    do { _ = try await getJSON(URL(string: "\(jira)/rest/api/3/myself")!, auth: auth) } catch { throw Msg("\(error.localizedDescription)".hasPrefix("HTTP 40") ? "Jira 인증 실패 — 이메일 · 토큰 확인 후 ↻" : "Jira 연결 실패 · \(error.localizedDescription)") }
     let j = try await getJSON(c.url!, auth: auth)
     return (dig(j, "issues") as? [Any] ?? []).map { i in
         let key = str(i, "key"), status = str(i, "fields.status.name")
@@ -587,7 +589,8 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
         // 출처마다: 가져오기 + (이전 fp, 항목) → 알림 (제목, 내용) 또는 nil
         var sources: [(String, () async throws -> [Item], (String?, Item) -> (String, String)?)] = [
             ("PR 리뷰", myPRs, { old, i in old.flatMap { prChange($0, i.fp) }.map { ("\(ticket(i.title) ?? "PR") · \($0)", i.detail.isEmpty ? i.title : i.detail) } }),
-            ("메일", mail, { old, i in old == nil ? ("새 메일 · \(i.sub)", i.title) : nil }),
+            ("메일", mail, { [prs = all("PR 리뷰").map(\.title).filter { !$0.isEmpty }] old, i in
+                old == nil && !prs.contains { i.title.contains($0) } ? ("새 메일 · \(i.sub)", i.title) : nil }),
             ("Jira 할당", jiraAssigned, { old, i in old == nil ? ("\(i.id) 새로 할당됨", i.title) : nil }),
             ("내 작업 병합", { let items = await Task.detached { workStatus(bs) }.value
                               await self.loadSummaries(Set(items.compactMap { ticket($0.group) }))
@@ -1122,6 +1125,7 @@ struct SettingsView: View {
         refreshSaved()
         status = "확인 중…"
         Task {
+            while w.busy { try? await Task.sleep(for: .milliseconds(300)) }
             await w.check()
             status = [("PR 리뷰", "Bitbucket"), ("Jira 할당", "Jira"), ("메일", "메일"), ("내 작업 병합", "병합 추적")].compactMap { id, name in
                 guard let s = w.sections.first(where: { $0.id == id }) else { return nil }
@@ -1530,6 +1534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             precondition(webURL(remote: "git@github.com:someone/my-app.git", branch: "main") == "https://github.com/someone/my-app/tree/main")
             precondition(splitRepo("my-app/me/ABC-1", ["my-app"]) == "my-app:me/ABC-1" && splitRepo("me/ABC-1", ["my-app"]) == nil)
             precondition(site("company.atlassian.net/") == "https://company.atlassian.net" && site("https://x.y") == "https://x.y" && site("") == "")
+            precondition(site("http://hug.x.co.kr/login?returnUrl=%2Fapp") == "https://hug.x.co.kr" && site(" x.y:8443/a ") == "https://x.y:8443")
             precondition(stageLine(["release/5.0.0"], ["master", "release/4.0.0", "release/5.0.0"]) == "release/5.0.0 ✓ → master ✗")
             precondition(stageLine(["develop/1.4.0", "develop/2.4.0"], ["develop/2.4.0", "release/1.4.0", "master"]) == "develop/2.4.0 ✓ → release ✗ → master ✗")
             precondition(invader.joined().allSatisfy { $0.count == invader[0][0].count } && invader.allSatisfy { $0.count == invader[0].count })

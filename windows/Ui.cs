@@ -655,6 +655,7 @@ public class SettingsWindow : Window
         }
         catch { }
         status.Text = "확인 중…";
+        while (W.Busy) await Task.Delay(300);  // 돌던 확인이 끝나길 기다렸다가 다시 (안 그러면 예전 결과가 보임)
         await W.Check();
         status.Text = string.Join("\n", new[] { ("PR 리뷰", "Bitbucket"), ("Jira 할당", "Jira"), ("메일", "메일"), ("내 작업 병합", "병합 추적") }
             .Where(x => W.Has(x.Item1)).Select(x => W.Error(x.Item1) is { } e ? $"{x.Item2} ✗ {e}" : $"{x.Item2} ✓ {W.All(x.Item1).Count}개"));

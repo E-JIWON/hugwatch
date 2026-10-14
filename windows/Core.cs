@@ -173,10 +173,11 @@ public static class Logic
     // 단계 브랜치 = develop · develop/1.4.0(-studio) · release/3.6.1 · master · main. develop/feature-… 같은 임시 동기화 브랜치는 제외
     public const string Mainline = @"^((develop|release)(/[0-9][^/]*)?|master|main)$";
 
-    public static string Site(string s)  // "company.atlassian.net" → "https://company.atlassian.net"
+    // "company.atlassian.net" · "http://hug.company.com/login?…" → "https://호스트" (주소창 통째로 붙여넣어도, 비밀번호는 https 로만)
+    public static string Site(string s)
     {
-        var t = (s ?? "").Trim().Trim('/');
-        return t.Length == 0 || t.StartsWith("http") ? t : "https://" + t;
+        var t = (s ?? "").Trim();
+        return t != "" && Uri.TryCreate(t.Contains("://") ? t : "https://" + t, UriKind.Absolute, out var u) && u.Host != "" ? $"https://{u.Authority}" : "";
     }
 
     public static string? Ticket(string s) { var m = Regex.Match(s, TicketRe); return m.Success ? m.Value : null; }
@@ -284,9 +285,12 @@ public static class Net
         if (post != null) req.Content = new StringContent(JsonSerializer.Serialize(post), Encoding.UTF8, "application/json");
         using var res = await Http.SendAsync(req);
         var body = await res.Content.ReadAsStringAsync();
-        if (res.StatusCode != HttpStatusCode.OK) throw new Exception($"HTTP {(int)res.StatusCode} · {new Uri(url).Host}{new Uri(url).AbsolutePath}");
-        return JsonNode.Parse(body) ?? throw new Exception($"응답이 JSON 이 아님 · {new Uri(url).Host}");
+        var where = $"{new Uri(url).Host}{new Uri(url).AbsolutePath}";
+        if (res.StatusCode != HttpStatusCode.OK) throw new Exception($"HTTP {(int)res.StatusCode} · {where}");
+        return TryParse(body) ?? throw new Exception($"응답이 JSON 이 아님 · {where}");
     }
+
+    public static JsonNode? TryParse(string body) { try { return JsonNode.Parse(body); } catch (JsonException) { return null; } }
 
     // "a.b.c" 경로로 꺼내서 문자열로 (bool 은 맥 버전처럼 "1"/"0")
     public static string Str(JsonNode? n, string path)
@@ -372,7 +376,8 @@ public static class Sources
     {
         var auth = $"{s.Email}:{Creds.Need("jira-token")}";
         // 인증 실패해도 검색은 익명으로 200 + 빈 목록을 줘서, 로그인부터 확인
-        try { await Net.Json($"{s.Jira}/rest/api/3/myself", auth); } catch { throw new Exception("Jira 인증 실패 — 토큰 다시 넣기"); }
+        try { await Net.Json($"{s.Jira}/rest/api/3/myself", auth); }
+        catch (Exception e) { throw new Exception(e.Message.StartsWith("HTTP 40") ? "Jira 인증 실패 — 이메일 · 토큰 확인 후 ↻" : $"Jira 연결 실패 · {e.Message}"); }
         var jql = Uri.EscapeDataString(Logic.MyJql);
         var j = await Net.Json($"{s.Jira}/rest/api/3/search/jql?jql={jql}&fields=summary,status&maxResults=50", auth);
         return Net.Arr(j, "issues").Select(i =>
@@ -393,8 +398,8 @@ public static class Sources
         {
             var body = new { username = s.DaouId, password = Creds.Need("daou-password"), captcha = "", returnUrl = "" };
             using var res = await Net.Http.PostAsync($"{s.Daou}/api/login", new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"));
-            var j = JsonNode.Parse(await res.Content.ReadAsStringAsync());
-            if (res.StatusCode != HttpStatusCode.OK) throw new Exception($"메일 로그인 실패({(int)res.StatusCode}): {Net.Str(j, "message")}");
+            var j = Net.TryParse(await res.Content.ReadAsStringAsync());
+            if (res.StatusCode != HttpStatusCode.OK) throw new Exception($"메일 로그인 실패({(int)res.StatusCode}): {(j == null ? $"주소 확인 · {s.Daou}" : Net.Str(j, "message"))}");
             if (new[] { "normal", "regist" }.Contains(Net.Str(j, "data.certType"))) throw new Exception("메일 서버에 2차 인증이 켜져 있어 자동 로그인 불가");
         }
         catch (Exception e) { DaouFail = e.Message + " (앱 재시작 시 재시도)"; throw; }
@@ -544,6 +549,7 @@ public static class SelfTest
         Check(Logic.StageLine(new[] { "develop/feature-2.3.6-to-develop-1.4.0" }, new[] { "develop/1.4.0", "master" }) == "develop ✗ → master ✗", "stageLine 임시 브랜치 제외");
         Check(Regex.IsMatch("develop/1.4.0-studio", Logic.Mainline) && !Regex.IsMatch("develop/feature-x", Logic.Mainline), "mainline");
         Check(Logic.Site("company.atlassian.net/") == "https://company.atlassian.net" && Logic.Site("https://x.y") == "https://x.y" && Logic.Site("") == "", "site");
+        Check(Logic.Site("http://hug.x.co.kr/login?returnUrl=%2Fapp") == "https://hug.x.co.kr" && Logic.Site(" x.y:8443/a ") == "https://x.y:8443", "site path");
         Check(NaturalComparer.Instance.Compare("release/1.10.0", "release/1.9.0") > 0, "natural sort");
         Check(Net.Str(JsonNode.Parse("{\"a\":{\"b\":3,\"t\":true}}"), "a.b") == "3" && Net.Str(JsonNode.Parse("{\"a\":{\"t\":true}}"), "a.t") == "1" && Net.Str(JsonNode.Parse("{}"), "x.y") == "", "json str");
         Check(Invader.Frames.All(f => f.All(r => r.Length == Invader.Frames[0][0].Length)), "invader grid");
