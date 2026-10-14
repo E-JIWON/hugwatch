@@ -23,39 +23,47 @@
 - **할 일**: Enter로 추가하고, 체크하면 완료예요. **우클릭**하면 완료 / 내일로 미루기 / 나중에 / 삭제가 나와요. `ABC-123` 같은 티켓 번호를 쓰면 Jira 링크가 돼요.
 - **병합 탭의 D · R · M**: develop · release · master에 들어갔으면 보라색으로 채워져요. 점선 칸은 그 저장소에 없는 단계예요. 오른쪽 초록 배지는 Jira 상태예요. release에서 먼저 배포하는 팀은 M보다 이걸 보면 돼요.
 
-## 설치 (맥)
+## 설치
 
-필요한 것: **macOS 15 이상**
+### 맥 (macOS 15 이상)
 
-### 방법 1 — 소스에서 빌드 (추천)
+```bash
+brew install --cask e-jiwon/tap/hugwatch
+open -a HugWatch
+```
 
-**Xcode Command Line Tools**가 필요해요.
+처음 켜면 **설정 창**이 열려요. 업데이트는 `brew upgrade --cask hugwatch`, 삭제는 `brew uninstall --cask hugwatch`예요.
+
+> 맥북 화면에서 메뉴바 아이콘이 안 보이면 노치 뒤에 숨은 거예요. 외부 모니터 메뉴바에서 **⌘를 누른 채 인베이더를 오른쪽으로 끌어** 옮기거나, 다른 메뉴바 아이콘을 줄여주세요.
+
+<details>
+<summary>Homebrew 없이 설치하기</summary>
+
+**소스에서 빌드** (Xcode Command Line Tools 필요)
 
 ```bash
 xcode-select --install   # 이미 깔려 있으면 넘어가요
 git clone https://github.com/E-JIWON/hugwatch.git
 cd hugwatch
-./build.sh install
+./build.sh install       # ~/Applications 에 설치하고 실행 · 업데이트는 git pull 후 다시
 ```
 
-`~/Applications/HugWatch.app`에 설치되고 바로 실행돼요. 처음 켜면 **설정 창**이 열려요.
+**받아서 설치**
 
-### 방법 2 — 받아서 설치
-
-1. [Releases](https://github.com/E-JIWON/hugwatch/releases)에서 `HugWatch-mac.zip`을 받아 압축을 풀고 `HugWatch.app`을 `응용 프로그램` 폴더로 옮겨요
+1. [Releases](https://github.com/E-JIWON/hugwatch/releases/latest)에서 `HugWatch-mac.zip`을 받아 압축을 풀고 `HugWatch.app`을 `응용 프로그램` 폴더로 옮겨요
 2. 서명되지 않은 앱이라 처음엔 "확인되지 않은 개발자"라며 막혀요. 터미널에서 한 번 풀어주세요
    ```bash
    xattr -dr com.apple.quarantine /Applications/HugWatch.app
    ```
-   (또는 시스템 설정 → 개인정보 보호 및 보안 → 아래쪽 **그래도 열기**)
+</details>
 
-> 맥북 화면에서 메뉴바 아이콘이 안 보이면 노치 뒤에 숨은 거예요. 외부 모니터 메뉴바에서 **⌘를 누른 채 인베이더를 오른쪽으로 끌어** 옮기거나, 다른 메뉴바 아이콘을 줄여주세요.
+### 윈도우 (10 · 11, 베타)
 
-### 업데이트
+1. [Releases](https://github.com/E-JIWON/hugwatch/releases/latest)에서 **`HugWatch-Setup.exe`**를 받아 실행 → 다음 → 설치 (관리자 권한 필요 없어요)
+2. "Windows의 PC 보호" 창이 뜨면 **추가 정보** → **실행** (서명되지 않은 앱이라 그래요)
+3. 설치 끝에 HugWatch가 켜지고, 작업 표시줄 오른쪽 트레이에 인베이더가 떠요
 
-```bash
-cd hugwatch && git pull && ./build.sh install
-```
+설치 없이 쓰고 싶으면 같은 곳의 `HugWatch.exe` 하나만 받아서 실행해도 돼요. 자세한 건 아래 [윈도우](#윈도우-베타) 참고.
 
 ## 처음 설정
 
@@ -135,11 +143,7 @@ security delete-generic-password -s hugwatch -a daou-password
 
 > 아직 윈도우 실기기에서 충분히 써보지 않은 **베타**예요. 이상한 점이 있으면 [이슈](https://github.com/E-JIWON/hugwatch/issues)로 알려주세요.
 
-### 설치
-1. [Releases](https://github.com/E-JIWON/hugwatch/releases)에서 `HugWatch.exe`를 받아 원하는 폴더에 둬요 (설치 과정 없이 exe 하나예요)
-2. 실행하면 "Windows의 PC 보호" 창이 뜰 수 있어요. 서명되지 않은 앱이라 그래요 → **추가 정보** → **실행**
-3. 처음 켜면 설정 창이 열려요. 설정 방법은 위 [처음 설정](#처음-설정)과 같아요
-4. 설정 창 아래 **Windows 시작할 때 자동 실행**을 켜두면 편해요
+설치는 위 [설치 → 윈도우](#윈도우-10--11-베타)를 보세요. 처음 켜면 설정 창이 열리고, 설정 방법은 [처음 설정](#처음-설정)과 같아요. 설치할 때나 설정 창에서 **Windows 시작할 때 자동 실행**을 켜두면 편해요.
 
 ### 맥과 다른 점
 - **트레이 아이콘**을 누르면 오른쪽 아래에 창이 떠요. 우클릭하면 열기 / 설정 / 종료 메뉴가 나와요
@@ -149,7 +153,7 @@ security delete-generic-password -s hugwatch -a daou-password
 - 토큰·비밀번호는 **자격 증명 관리자**(일반 자격 증명 `HugWatch:…`)에, 설정·기록은 `%APPDATA%\HugWatch`에 저장돼요
 
 ### 완전히 지우기
-1. 트레이 아이콘 우클릭 → 종료, `HugWatch.exe` 삭제
+1. 설정 → 앱 → **HugWatch** 제거 (설치 프로그램으로 깔았을 때). exe 만 썼으면 트레이 우클릭 → 종료 후 exe 삭제
 2. `%APPDATA%\HugWatch` 폴더 삭제
 3. 제어판 → 자격 증명 관리자 → Windows 자격 증명 → `HugWatch:`로 시작하는 항목 제거
 4. 자동 실행을 켰었다면 설정 창에서 끄고 지우거나, 레지스트리 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`의 `HugWatch` 제거
