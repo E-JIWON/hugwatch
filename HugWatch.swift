@@ -1,8 +1,18 @@
 import SwiftUI
 import UserNotifications
+import ImageIO
+
+// 데모 모드 (HugWatch --demo): 사용법 GIF 용. 가짜 데이터만, 실제 설정·토큰·기록과 분리된 저장소, 네트워크·git 안 씀
+let demo = CommandLine.arguments.contains("--demo")
+let store: UserDefaults = {
+    guard demo else { return .standard }
+    let name = "kr.bongchil.hugwatch.demo"
+    UserDefaults.standard.removePersistentDomain(forName: name)
+    return UserDefaults(suiteName: name)!
+}()
 
 // 설정 — 설정 창에서 넣고 이 맥의 UserDefaults 에만 저장. 토큰·비밀번호는 키체인 (코드엔 아무 값도 없음)
-func pref(_ k: String) -> String { (UserDefaults.standard.string(forKey: k) ?? "").trimmingCharacters(in: .whitespaces) }
+func pref(_ k: String) -> String { (store.string(forKey: k) ?? "").trimmingCharacters(in: .whitespaces) }
 func site(_ s: String) -> String {  // "company.atlassian.net" → "https://company.atlassian.net"
     let t = s.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
     return t.isEmpty || t.hasPrefix("http") ? t : "https://" + t
@@ -344,14 +354,14 @@ func workStatus(_ manual: [String]) -> [Item] {
         // 병합 후 브랜치가 지워져도 마지막 커밋으로 계속 추적
         let live = try? run("/usr/bin/git", ["-C", path, "rev-parse", "origin/\(branch)"])
         let merged = mergeInfo(path, branch)
-        let sha = live ?? UserDefaults.standard.string(forKey: "sha.\(e)") ?? merged?.head ?? ""
+        let sha = live ?? store.string(forKey: "sha.\(e)") ?? merged?.head ?? ""
         // 링크: 병합된 PR > 살아있는 브랜치 > 커밋 (지워진 브랜치 주소는 404)
         let remoteURL = (try? run("/usr/bin/git", ["-C", path, "remote", "get-url", "origin"])) ?? ""
         let base = repoWeb(remoteURL), gh = base.contains("github.com")
         let url = merged?.pr.map { "\(base)/pull-requests/\($0)" } ?? (live != nil ? webURL(remote: remoteURL, branch: branch) : "\(base)/\(gh ? "commit" : "commits")/\(sha)")
         let group = ticket(branch) ?? branch
         guard !sha.isEmpty else { return Item(id: e, title: "\(repo) · \(branch)", sub: "원격 브랜치 없음", url: url, fp: "", group: group) }
-        UserDefaults.standard.set(sha, forKey: "sha.\(e)")
+        store.set(sha, forKey: "sha.\(e)")
         let remote = remotes[path] ?? ((try? run("/usr/bin/git", ["-C", path, "branch", "-r", "--format=%(refname:lstrip=3)"])) ?? "").split(separator: "\n").map(String.init)
         remotes[path] = remote
         let into = ((try? run("/usr/bin/git", ["-C", path, "branch", "-r", "--contains", sha, "--format=%(refname:lstrip=3)"])) ?? "")
@@ -434,27 +444,27 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
     @Published var notifOff: String?
     @Published var candidates: [(id: String, note: String)] = []
     // 우클릭으로 숨긴 항목 ("섹션/id"). 화면에서만 빼고 감시·알림 기준값은 그대로
-    @Published var hidden = Set(UserDefaults.standard.stringArray(forKey: "hidden") ?? []) {
-        didSet { UserDefaults.standard.set(Array(hidden), forKey: "hidden") }
+    @Published var hidden = Set(store.stringArray(forKey: "hidden") ?? []) {
+        didSet { store.set(Array(hidden), forKey: "hidden") }
     }
     // 새 소식: 보낸 알림 기록 (최근 50개)
-    @Published var events = (try? JSONDecoder().decode([Event].self, from: UserDefaults.standard.data(forKey: "events") ?? Data())) ?? [] {
-        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(events), forKey: "events") }
+    @Published var events = (try? JSONDecoder().decode([Event].self, from: store.data(forKey: "events") ?? Data())) ?? [] {
+        didSet { store.set(try? JSONEncoder().encode(events), forKey: "events") }
     }
     // 할 일. 완료한 지 7일 지난 건 정리
-    @Published var todos = ((try? JSONDecoder().decode([Todo].self, from: UserDefaults.standard.data(forKey: "todos") ?? Data())) ?? [])
+    @Published var todos = ((try? JSONDecoder().decode([Todo].self, from: store.data(forKey: "todos") ?? Data())) ?? [])
         .filter { !$0.done || ($0.doneAt ?? .distantFuture) > Date().addingTimeInterval(-7 * 86400) } {
-        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(todos), forKey: "todos") }
+        didSet { store.set(try? JSONEncoder().encode(todos), forKey: "todos") }
     }
     func updateTodo(_ id: String, _ change: (inout Todo) -> Void) {
         if let k = todos.firstIndex(where: { $0.id == id }) { change(&todos[k]) }
     }
-    @Published var branches = UserDefaults.standard.stringArray(forKey: "branches") ?? [] {
-        didSet { UserDefaults.standard.set(branches, forKey: "branches") }
+    @Published var branches = store.stringArray(forKey: "branches") ?? [] {
+        didSet { store.set(branches, forKey: "branches") }
     }
     // 티켓 키 → Jira 제목 (병합 탭에 무슨 작업인지 보여주기). 제목은 잘 안 바뀌어서 한 번 받으면 저장
-    @Published var summaries = UserDefaults.standard.dictionary(forKey: "summaries") as? [String: String] ?? [:] {
-        didSet { UserDefaults.standard.set(summaries, forKey: "summaries") }
+    @Published var summaries = store.dictionary(forKey: "summaries") as? [String: String] ?? [:] {
+        didSet { store.set(summaries, forKey: "summaries") }
     }
     private var anim: Timer?
 
@@ -477,6 +487,7 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
     }
 
     init() {
+        if demo { seedDemo(); return }
         guard !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { ok, err in
             Task { @MainActor in self.notifOff = ok ? nil : "맥 알림 꺼짐 · 시스템 설정 → 알림 → HugWatch 허용" + (err.map { " (\($0.localizedDescription))" } ?? "") }
@@ -484,6 +495,47 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
         Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in Task { @MainActor in await self.check() } }
         if email.isEmpty && daou.isEmpty { DispatchQueue.main.async { SettingsWindow.shared.show(self) } }
         Task { await check() }
+    }
+
+    // 사용법 GIF 용 가짜 데이터 (실제 사람·회사·저장소 아님)
+    func seedDemo() {
+        let now = Date(), url = "https://example.com"
+        sections = [
+            Section(id: "PR 리뷰", items: [
+                Item(id: "web-app#142", title: "[ABC-142] 로그인 화면 다크 모드 대응", sub: "web-app · 코멘트 2 · 승인 1", url: url, fp: "2/1/0",
+                     detail: "승인 김하늘 · 코멘트 박도윤 2 · 대기 2명",
+                     people: [Person(name: "김하늘", avatar: "", state: "ok"), Person(name: "박도윤", avatar: "", state: "wait"), Person(name: "이서준", avatar: "", state: "wait")]),
+                Item(id: "api-server#88", title: "[ABC-138] API 응답 캐시 적용", sub: "api-server · 코멘트 1 · 승인 0 · 수정요청 1", url: url, fp: "1/0/1",
+                     detail: "수정요청 최유나 · 코멘트 최유나 1 · 대기 1명",
+                     people: [Person(name: "최유나", avatar: "", state: "ask"), Person(name: "정민재", avatar: "", state: "wait")]),
+            ]),
+            Section(id: "메일", items: [
+                Item(id: "m1", title: "주간 회의록 공유", sub: "김하늘", url: url, fp: "1"),
+                Item(id: "m2", title: "10월 3주차 배포 일정 안내", sub: "운영팀", url: url, fp: "1"),
+            ]),
+            Section(id: "Jira 할당", items: [
+                Item(id: "ABC-151", title: "검색 결과 정렬 옵션 추가", sub: "ABC-151", url: url, fp: "1", tag: "진행 중", tone: "blue"),
+                Item(id: "ABC-149", title: "알림 설정 화면 개선", sub: "ABC-149", url: url, fp: "1", tag: "개발완료", tone: "green"),
+                Item(id: "ABC-147", title: "접근성 라벨 정리", sub: "ABC-147", url: url, fp: "1", tag: "할 일", tone: "gray"),
+            ]),
+            Section(id: "내 작업 병합", items: [
+                Item(id: "web-app:me/ABC-142", title: "web-app · me/ABC-142", sub: "release/2.1.0", url: url, fp: "a|", group: "ABC-142", dots: [true, true, false]),
+                Item(id: "api-server:me/ABC-138", title: "api-server · me/ABC-138", sub: "develop/2.1.0", url: url, fp: "b|", group: "ABC-138", dots: [true, false, false]),
+                Item(id: "web-app:me/ABC-133", title: "web-app · me/ABC-133", sub: "아직 병합 전", url: url, fp: "c|", group: "ABC-133", dots: [false, false, false]),
+                Item(id: "web-app:me/ABC-120", title: "web-app · me/ABC-120", sub: "master", url: url, fp: "d|", group: "ABC-120", dots: [true, true, true]),
+            ]),
+        ]
+        summaries = ["ABC-142": "로그인 화면 다크 모드 대응", "ABC-138": "API 응답 캐시 적용", "ABC-133": "프로필 이미지 업로드 개선", "ABC-120": "온보딩 문구 수정"]
+        jiraStatus = ["ABC-142": ("진행 중", false), "ABC-138": ("완료", true), "ABC-133": ("진행 중", false)]
+        events = [
+            Event(source: "PR 리뷰", title: "ABC-142 · 승인 +1", sub: "승인 김하늘 · 코멘트 박도윤 2", url: url, date: now.addingTimeInterval(-120)),
+            Event(source: "내 작업 병합", title: "ABC-142 → release/2.1.0 병합됨", sub: "로그인 화면 다크 모드 대응", url: url, date: now.addingTimeInterval(-1500)),
+            Event(source: "메일", title: "새 메일 · 김하늘", sub: "주간 회의록 공유", url: url, date: now.addingTimeInterval(-3600)),
+            Event(source: "Jira 할당", title: "ABC-151 새로 할당됨", sub: "검색 결과 정렬 옵션 추가", url: url, date: now.addingTimeInterval(-7200)),
+            Event(source: "PR 리뷰", title: "ABC-138 · 수정 요청 +1", sub: "수정요청 최유나", url: url, date: now.addingTimeInterval(-104_000), read: true),
+        ]
+        todos = [Todo(text: "ABC-151 정렬 옵션 API 확인"), Todo(text: "디자인 QA 피드백 반영"), Todo(text: "주간 회고 작성")]
+        lastCheck = now.addingTimeInterval(-60)
     }
 
     func markRead(_ source: String) {
@@ -506,6 +558,7 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
     func loadCandidates() async { candidates = await Task.detached { recentBranches() }.value }
 
     func check() async {
+        if demo { lastCheck = Date(); return }
         guard !busy else { return }
         busy = true
         let bs = branches
@@ -536,8 +589,8 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
 
     func diff(_ name: String, _ items: [Item], _ describe: (String?, Item) -> (String, String)?) {
         let key = "fp.\(name)"
-        let old = UserDefaults.standard.dictionary(forKey: key) as? [String: String]
-        UserDefaults.standard.set(Dictionary(items.map { ($0.id, $0.fp) }) { a, _ in a }, forKey: key)
+        let old = store.dictionary(forKey: key) as? [String: String]
+        store.set(Dictionary(items.map { ($0.id, $0.fp) }) { a, _ in a }, forKey: key)
         guard let old else { return }  // 첫 실행은 기준값만 저장
         var sent = Set<String>()  // 같은 티켓 브랜치 여러 개 → 같은 알림 한 번만
         for i in items {
@@ -576,7 +629,7 @@ let look: [String: (icon: String, color: Color)] = [
     "Jira 할당": ("checklist", .green), "내 작업 병합": ("arrow.triangle.merge", .orange),
 ]
 
-func open(_ url: String) { if let u = URL(string: url) { NSWorkspace.shared.open(u) } }
+func open(_ url: String) { if !demo, let u = URL(string: url) { NSWorkspace.shared.open(u) } }
 
 struct Row: View {
     @Environment(\.zoom) private var z
@@ -626,7 +679,9 @@ struct Avatars: View {
     var body: some View {
         HStack(spacing: 3) {
             ForEach(people, id: \.self) { p in
-                AsyncImage(url: URL(string: p.avatar)) { $0.resizable() } placeholder: { Circle().fill(.quaternary) }
+                AsyncImage(url: URL(string: p.avatar)) { $0.resizable() } placeholder: {
+                    Circle().fill(Color.secondary.opacity(0.25)).overlay(Text(String(p.name.prefix(1))).z(9, .semibold).foregroundStyle(.secondary))
+                }
                     .frame(width: 18 * z, height: 18 * z)
                     .clipShape(Circle())
                     .opacity(p.state == "wait" ? 0.4 : 1)
@@ -730,7 +785,7 @@ struct TodoRow: View {
     let toggle: () -> Void
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 9) {
-            TodoCheck(done: todo.done).onTapGesture(perform: toggle).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 * z }
+            TodoCheck(done: todo.done).onTapGesture(perform: toggle).demoAnchor("todocheck:\(todo.text)").alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 * z }
             Text(todoText(todo.text)).z(13).strikethrough(todo.done).foregroundStyle(todo.done ? .tertiary : .primary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
@@ -739,6 +794,174 @@ struct TodoRow: View {
         }
         .padding(.vertical, 4).padding(.horizontal, 3)
         .contentShape(Rectangle())
+    }
+}
+
+// ───────── 데모 시연 (HugWatch --demo --scene tabs|hide|todo|float) — 사용법 GIF 용 ─────────
+// 앱이 스스로 탭을 바꾸고 메뉴를 띄움. 가짜 커서·클릭 표시·우클릭 메뉴를 그 위에 그림
+
+struct DemoMenu { var at: CGPoint; var items: [String]; var hi: Int? }
+
+struct PanelHooks {
+    var tab: (Tab) -> Void = { _ in }
+    var hidden: (Bool) -> Void = { _ in }
+    var later: (Bool) -> Void = { _ in }
+    var text: (String) -> Void = { _ in }
+    var submit: () -> Void = {}
+}
+
+@MainActor final class Director: ObservableObject {
+    static let shared = Director()
+    @Published var cursor = CGPoint(x: 250, y: 120)
+    @Published var showCursor = false
+    @Published var ripple = 0
+    @Published var menu: DemoMenu?
+    @Published var keys: String?
+    var frames: [String: CGRect] = [:]
+    var hooks = PanelHooks()
+
+    func pause(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1e9)) }
+    func move(_ key: String, dx: CGFloat = 0) async {
+        guard let f = frames[key] else { return }
+        withAnimation(.easeInOut(duration: 0.55)) { cursor = CGPoint(x: f.midX + dx, y: f.midY) }
+        await pause(0.65)
+    }
+    func click() async { ripple += 1; await pause(0.2) }
+    // 우클릭 메뉴: 뜨고 → 항목에 불 들어오고 → 고름
+    func menuPick(_ items: [String], _ pick: Int, then act: () -> Void) async {
+        ripple += 1
+        let h = CGFloat(items.count) * 24 + 10, root = frames["root"] ?? .zero
+        var at = CGPoint(x: min(cursor.x + 4, root.maxX - 188), y: cursor.y + 4)  // 메뉴 폭 176 + 여백
+        if at.y + h > root.maxY - 4 { at.y = cursor.y - h - 4 }
+        withAnimation(.easeOut(duration: 0.12)) { menu = DemoMenu(at: at, items: items, hi: nil) }
+        await pause(0.7)
+        withAnimation(.easeInOut(duration: 0.3)) { cursor = CGPoint(x: at.x + 50, y: at.y + 5 + CGFloat(pick) * 24 + 12) }
+        await pause(0.35)
+        menu?.hi = pick
+        await pause(0.55)
+        ripple += 1
+        await pause(0.12)
+        menu = nil
+        withAnimation(.easeInOut(duration: 0.25)) { act() }
+    }
+    func type(_ text: String) async {
+        for k in 1...text.count { hooks.text(String(text.prefix(k))); await pause(0.09) }
+    }
+    func showKeys(_ k: String) async {
+        withAnimation(.easeOut(duration: 0.15)) { keys = k }
+        await pause(0.7)
+        withAnimation(.easeIn(duration: 0.2)) { keys = nil }
+    }
+
+    func run(_ scene: String, _ w: Watcher) async {
+        await pause(0.8)  // 패널이 그려지고 연결될 때까지
+        if scene == "hide" { hooks.tab(.jira) }
+        await pause(1.6)  // 녹화 시작 기다림
+        withAnimation { showCursor = true }
+        await pause(0.4)
+        switch scene {
+        case "tabs":
+            for (t, wait) in [(Tab.pr, 1.8), (.jira, 1.5), (.work, 2.2), (.todo, 1.5), (.feed, 1.2)] {
+                await move("chip:\(t.rawValue)"); await click(); hooks.tab(t); await pause(wait)
+            }
+        case "hide":
+            let id = "Jira 할당/ABC-147"
+            await move("row:\(id)", dx: 40)
+            await menuPick(["목록에서 숨기기"], 0) { w.hidden.insert(id) }
+            await pause(1.3)
+            await move("fold:hidden"); await click(); withAnimation { hooks.hidden(true) }
+            await pause(1.3)
+            await move("hrow:\(id)", dx: 40)
+            await menuPick(["다시 보이기"], 0) { w.hidden.remove(id) }
+            hooks.hidden(false)
+            await pause(1.6)
+        case "todo":
+            await move("chip:할 일"); await click(); hooks.tab(.todo); await pause(0.9)
+            await move("todo:input", dx: -60); await click(); await pause(0.2)
+            await type("릴리스 노트 작성"); await pause(0.4)
+            await showKeys("⏎")
+            withAnimation { hooks.submit() }
+            await pause(1.1)
+            await move("todocheck:디자인 QA 피드백 반영"); await click()
+            withAnimation { w.todos = w.todos.map { var t = $0; if t.text == "디자인 QA 피드백 반영" { t.done = true; t.doneAt = Date() }; return t } }
+            await pause(1.2)
+            await move("todo:주간 회고 작성", dx: 30)
+            await menuPick(["완료", "내일로 미루기", "나중에", "—", "삭제"], 1) {
+                w.todos = w.todos.map { var t = $0; if t.text == "주간 회고 작성" { t.snooze = Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)) }; return t }
+            }
+            await pause(1.1)
+            await move("fold:later"); await click(); withAnimation { hooks.later(true) }
+            await pause(1.8)
+        case "float":
+            for z in [1.1, 1.2] { await showKeys("⌘ +"); withAnimation { store.set(z, forKey: "zoom") }; await pause(0.5) }
+            await pause(1.0)
+            await showKeys("⌘ 0"); withAnimation { store.set(1.0, forKey: "zoom") }
+            await pause(1.0)
+            await move("pin"); await click(); store.set(false, forKey: "onTop"); await pause(1.2)
+            await click(); store.set(true, forKey: "onTop"); await pause(1.2)
+        default: break
+        }
+        withAnimation { showCursor = false }
+    }
+}
+
+// 데모일 때만 위치를 기록 (가짜 커서가 찾아가게)
+struct DemoAnchor: ViewModifier {
+    let key: String
+    func body(content: Content) -> some View {
+        if demo { content.onGeometryChange(for: CGRect.self) { $0.frame(in: .named("panel")) } action: { Director.shared.frames[key] = $0 } }
+        else { content }
+    }
+}
+extension View { func demoAnchor(_ key: String) -> some View { modifier(DemoAnchor(key: key)) } }
+
+struct DemoLayer: View {
+    @ObservedObject var d = Director.shared
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+            if let k = d.keys {
+                Text(k).font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundStyle(.white)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity).transition(.opacity)
+            }
+            if let m = d.menu {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(m.items.indices, id: \.self) { k in
+                        if m.items[k] == "—" { Divider().padding(.vertical, 4) }
+                        else {
+                            Text(m.items[k]).font(.system(size: 13)).foregroundStyle(m.hi == k ? .white : .primary)
+                                .frame(width: 150, height: 22, alignment: .leading).padding(.horizontal, 8)
+                                .background(RoundedRectangle(cornerRadius: 5).fill(m.hi == k ? Color.accentColor : .clear))
+                        }
+                    }
+                }
+                .padding(5)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.black.opacity(0.15), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+                .offset(x: m.at.x, y: m.at.y)
+            }
+            if d.ripple > 0 { Ripple().id(d.ripple).position(d.cursor) }
+            if d.showCursor {
+                Image(systemName: "cursorarrow").font(.system(size: 20, weight: .regular)).foregroundStyle(.black)
+                    .background(Image(systemName: "cursorarrow").font(.system(size: 20, weight: .heavy)).foregroundStyle(.white))
+                    .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
+                    .offset(x: d.cursor.x - 5, y: d.cursor.y - 3)
+                    .transition(.opacity)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+struct Ripple: View {
+    @State private var on = false
+    var body: some View {
+        Circle().stroke(Color(nsColor: violet).opacity(on ? 0 : 0.8), lineWidth: 2.5)
+            .frame(width: on ? 36 : 8, height: on ? 36 : 8)
+            .onAppear { withAnimation(.easeOut(duration: 0.45)) { on = true } }
     }
 }
 
@@ -773,6 +996,7 @@ struct FloatingLook: ViewModifier {
     static let shared = SettingsWindow()
     private var win: NSWindow?
     func show(_ w: Watcher) {
+        guard !demo else { return }  // 데모 녹화 중 실제 설정이 보이지 않게
         if win == nil {
             let x = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(w: w)))
             x.title = "HugWatch 설정"
@@ -788,12 +1012,12 @@ struct FloatingLook: ViewModifier {
 
 struct SettingsView: View {
     @ObservedObject var w: Watcher
-    @AppStorage("email") private var emailV = ""
-    @AppStorage("jiraSite") private var jiraSite = ""
-    @AppStorage("bbWorkspace") private var bbWS = ""
-    @AppStorage("daouURL") private var daouURL = ""
-    @AppStorage("daouId") private var daouIdV = ""
-    @AppStorage("repoRoots") private var roots = ""
+    @AppStorage("email", store: store) private var emailV = ""
+    @AppStorage("jiraSite", store: store) private var jiraSite = ""
+    @AppStorage("bbWorkspace", store: store) private var bbWS = ""
+    @AppStorage("daouURL", store: store) private var daouURL = ""
+    @AppStorage("daouId", store: store) private var daouIdV = ""
+    @AppStorage("repoRoots", store: store) private var roots = ""
     @State private var jiraToken = ""
     @State private var bbToken = ""
     @State private var daouPw = ""
@@ -896,7 +1120,7 @@ final class KeyPanel: NSPanel { override var canBecomeKey: Bool { true } }
     static let shared = FloatPanel()
     private var panel: NSPanel?
 
-    func show(_ w: Watcher) {
+    func show(_ w: Watcher, at top: NSPoint? = nil) {
         if panel == nil {
             let host = NSHostingController(rootView: Panel(w: w, floating: true))
             host.sizingOptions = []  // 테두리 없는 패널은 자동 크기맞춤이 안 먹어서 Panel 이 fit() 으로 직접 알려줌
@@ -908,16 +1132,20 @@ final class KeyPanel: NSPanel { override var canBecomeKey: Bool { true } }
             p.hasShadow = true
             p.hidesOnDeactivate = false
             p.isReleasedWhenClosed = false
-            if !p.setFrameUsingName("HugWatchFloat") { p.center() }
-            p.setFrameAutosaveName("HugWatchFloat")
+            if let top { p.setFrameTopLeftPoint(top) }  // 데모: 배경 창 위 정해진 자리 (위치 저장 안 함)
+            else {
+                if !p.setFrameUsingName("HugWatchFloat") { p.center() }
+                p.setFrameAutosaveName("HugWatchFloat")
+            }
             panel = p
         }
-        setOnTop(UserDefaults.standard.object(forKey: "onTop") as? Bool ?? true)
+        setOnTop(store.object(forKey: "onTop") as? Bool ?? true)
         panel?.orderFrontRegardless()
         panel?.makeKey()
     }
 
     func close() { panel?.orderOut(nil) }
+    func moveTop(to p: NSPoint) { panel?.setFrameTopLeftPoint(p) }
 
     // 내용 크기에 창을 맞춤 (위쪽 모서리 고정 — 늘어나도 아래로 자람)
     func fit(_ size: CGSize) {
@@ -937,9 +1165,9 @@ struct Panel: View {
     @State private var showLater = false
     @State private var showDone = false
     @FocusState private var todoFocus: Bool
-    @AppStorage("onTop") private var onTop = true
-    @AppStorage("zoom") private var zoom = 1.0
-    @State private var tab = CommandLine.arguments.contains("--tab-todo") ? Tab.todo : Tab.feed  // --tab-todo: 확인용
+    @AppStorage("onTop", store: store) private var onTop = true
+    @AppStorage("zoom", store: store) private var zoom = 1.0
+    @State private var tab = Tab.feed
     @State private var adding = false
     @State private var picking = false
     @State private var newBranch = ""
@@ -973,6 +1201,7 @@ struct Panel: View {
                 if floating {
                     Button { onTop.toggle() } label: { Image(systemName: onTop ? "pin.fill" : "pin") }
                         .buttonStyle(.borderless).help(onTop ? "맨 위 고정 끄기 (다른 창 뒤로 갈 수 있음)" : "맨 위 고정 (항상 다른 앱 위)")
+                        .demoAnchor("pin")
                     Button { FloatPanel.shared.close() } label: { Image(systemName: "xmark") }
                         .buttonStyle(.borderless).help("닫기")
                 } else {
@@ -1014,6 +1243,15 @@ struct Panel: View {
         }
         .padding(14)
         .frame(width: 340 * (floating ? zoom : 1))
+        .demoAnchor("root")
+        .coordinateSpace(name: "panel")
+        .overlay(alignment: .topLeading) { if demo && floating { DemoLayer() } }
+        .onAppear {
+            guard demo && floating else { return }
+            Director.shared.hooks = PanelHooks(
+                tab: { tab = $0 }, hidden: { showHidden = $0 }, later: { showLater = $0 }, text: { newTodo = $0 },
+                submit: { w.todos.insert(Todo(text: newTodo), at: 0); newTodo = "" })
+        }
         .environment(\.zoom, floating ? zoom : 1)
         .background { if floating { zoomKeys } }
         .modifier(FloatingLook(on: floating, onTop: onTop))
@@ -1054,6 +1292,7 @@ struct Panel: View {
         }
         .buttonStyle(.plain)
         .padding(.top, 2)  // 점 자리
+        .demoAnchor("chip:\(t.rawValue)")
     }
 
     // ⌘+ / ⌘= 크게, ⌘− 작게, ⌘0 원래대로 (보이지 않는 버튼에 단축키만)
@@ -1100,6 +1339,7 @@ struct Panel: View {
         .padding(.vertical, 7).padding(.horizontal, 8)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(todoFocus ? 0.12 : 0.07)))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(todoGreen.opacity(todoFocus ? 0.5 : 0), lineWidth: 1))
+        .demoAnchor("todo:input")
         .padding(.bottom, 2)
 
         let active = w.todos.filter(\.isActive), later = w.todos.filter(\.isLater)
@@ -1109,6 +1349,7 @@ struct Panel: View {
         if !later.isEmpty {
             Button(showLater ? "나중에 접기" : "나중에 \(later.count)개") { showLater.toggle() }
                 .buttonStyle(.borderless).z(11).foregroundStyle(.secondary).padding(.top, 4)
+                .demoAnchor("fold:later")
             if showLater { ForEach(later) { todoRow($0).opacity(0.6) } }
         }
         if !done.isEmpty {
@@ -1120,6 +1361,7 @@ struct Panel: View {
 
     func todoRow(_ t: Todo) -> some View {
         TodoRow(todo: t) { w.updateTodo(t.id) { $0.done.toggle(); $0.doneAt = $0.done ? Date() : nil } }
+            .demoAnchor("todo:\(t.text)")
             .contextMenu {
                 Button(t.done ? "완료 취소" : "완료") { w.updateTodo(t.id) { $0.done.toggle(); $0.doneAt = $0.done ? Date() : nil } }
                 if !t.done {
@@ -1150,12 +1392,14 @@ struct Panel: View {
         if !hid.isEmpty {
             Button(showHidden ? "숨긴 항목 접기" : "숨긴 항목 \(hid.count)개") { showHidden.toggle() }
                 .buttonStyle(.borderless).z(11).foregroundStyle(.secondary).padding(.top, 4)
+                .demoAnchor("fold:hidden")
             if showHidden {
                 ForEach(hid) { i in
                     Row(source: source, title: i.title, sub: i.sub,
                         trailing: AnyView(Text("우클릭 → 다시 보이기").z(10).foregroundStyle(.tertiary).padding(.top, 4))) { open(i.url) }
                         .opacity(0.55)
                         .contextMenu { Button("다시 보이기") { w.hidden.remove("\(source)/\(i.id)") } }
+                        .demoAnchor("hrow:\(source)/\(i.id)")
                 }
             }
         }
@@ -1168,6 +1412,7 @@ struct Panel: View {
         ForEach(items.prefix(8)) { i in
             Row(source: source, title: i.title, sub: i.sub, detail: i.detail, people: i.people, trailing: i.tag.isEmpty ? AnyView(EmptyView()) : AnyView(Pill(text: i.tag, tone: i.tone))) { open(i.url) }
                 .contextMenu { Button("목록에서 숨기기") { w.hidden.insert("\(source)/\(i.id)") } }
+                .demoAnchor("row:\(source)/\(i.id)")
         }
         if items.count > 8 { Text("외 \(items.count - 8)개").z(11).foregroundStyle(.secondary) }
         hiddenSection(source)
@@ -1230,7 +1475,25 @@ struct Panel: View {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
-        if CommandLine.arguments.contains("--float-demo") { FloatPanel.shared.show(Watcher()); return }
+        if demo {
+            let back = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 620), styleMask: [.borderless], backing: .buffered, defer: false)
+            back.backgroundColor = NSColor(red: 0.91, green: 0.90, blue: 0.87, alpha: 1)
+            // 녹화 선명하게: 레티나(배율 큰) 화면 가운데
+            if let sc = NSScreen.screens.max(by: { $0.backingScaleFactor < $1.backingScaleFactor })?.visibleFrame {
+                back.setFrameOrigin(NSPoint(x: sc.midX - 380, y: sc.midY - 310))
+            }
+            NSApp.activate()  // 녹화·클릭이 다른 앱 창 뒤로 가지 않게 맨 앞으로
+            back.orderFrontRegardless()
+            let dw = Watcher()
+            FloatPanel.shared.show(dw, at: NSPoint(x: back.frame.midX - 170, y: back.frame.maxY - 40))
+            if let k = CommandLine.arguments.firstIndex(of: "--scene"), k + 1 < CommandLine.arguments.count {
+                let scene = CommandLine.arguments[k + 1]
+                Task { @MainActor in await Director.shared.run(scene, dw) }
+            }
+            // 창 크기가 내용에 맞춰진 뒤 다시 자리 잡기
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { FloatPanel.shared.moveTop(to: NSPoint(x: back.frame.midX - 170, y: back.frame.maxY - 40)) }
+            return
+        }
         if CommandLine.arguments.contains("--selftest") {
             precondition(prChange("1/0/0", "2/1/0") == "코멘트 +1, 승인 +1" && prChange("1/1/0", "1/1/0") == nil && prChange("2/1/0", "1/1/0") == nil)
             precondition(workChange("abc|release/5.0.0", "abc|master,release/5.0.0") == "→ master 반영됨")
@@ -1248,6 +1511,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             precondition(invader.joined().allSatisfy { $0.count == invader[0][0].count } && invader.allSatisfy { $0.count == invader[0].count })
             precondition(str(["a": ["b": 3]], "a.b") == "3" && str([:] as [String: Any], "x.y") == "")
             print("selftest ok"); exit(0)
+        }
+        // README 용 메뉴바 인베이더 폴짝 GIF: HugWatch --hop-gif out.gif (화면 녹화 없이 직접 그림)
+        if let i = CommandLine.arguments.firstIndex(of: "--hop-gif"), i + 1 < CommandLine.arguments.count {
+            let n = hop.count * 2
+            let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: CommandLine.arguments[i + 1]) as CFURL, "com.compuserve.gif" as CFString, n + 6, nil)!
+            CGImageDestinationSetProperties(dest, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+            func add(_ img: NSImage, _ delay: Double) {
+                var r = NSRect(origin: .zero, size: img.size)
+                CGImageDestinationAddImage(dest, img.cgImage(forProposedRect: &r, context: nil, hints: nil)!, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay]] as CFDictionary)
+            }
+            add(spriteImage(px: 8), 0.8)  // 평소 (보라)
+            for t in 0..<n { add(spriteImage(frame: t / 2, dy: hop[t % hop.count], color: NSColor(hue: CGFloat(t % 14) / 14, saturation: 0.75, brightness: 1, alpha: 1), px: 8), 0.07) }
+            CGImageDestinationFinalize(dest)
+            exit(0)
         }
         // build.sh 가 앱 아이콘 만들 때 씀: HugWatch --icon AppIcon.icns
         if let i = CommandLine.arguments.firstIndex(of: "--icon"), i + 1 < CommandLine.arguments.count {
