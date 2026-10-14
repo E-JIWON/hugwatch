@@ -220,8 +220,8 @@ public static class Logic
         foreach (var st in new[] { "develop", "release", "master|main" })
         {
             var re = new Regex($"^({st})(/[0-9][^/]*)?$");
-            if (!remote.Any(re.IsMatch)) continue;
-            var hit = into.Where(re.IsMatch).OrderBy(b => b, NaturalComparer.Instance).LastOrDefault();
+            if (!remote.Any(r => re.IsMatch(r))) continue;
+            var hit = into.Where(b => re.IsMatch(b)).OrderBy(b => b, NaturalComparer.Instance).LastOrDefault();
             res.Add((st.Split('|')[0], hit));
         }
         return res;
