@@ -59,7 +59,7 @@ cd hugwatch
 
 ### 윈도우 (10 · 11, 베타)
 
-1. [Releases](https://github.com/E-JIWON/hugwatch/releases/latest)에서 **`HugWatch-Setup.exe`**를 받아 실행 → 다음 → 설치 (관리자 권한 필요 없어요)
+1. [Releases](https://github.com/E-JIWON/hugwatch/releases/latest)에서 **설치 프로그램** `HugWatch-Setup.exe` 를 받아 실행 → 다음 → 설치 (관리자 권한 필요 없어요)
 2. "Windows의 PC 보호" 창이 뜨면 **추가 정보** → **실행** (서명되지 않은 앱이라 그래요)
 3. 설치 끝에 HugWatch가 켜지고, 작업 표시줄 오른쪽 트레이에 인베이더가 떠요
 
@@ -149,7 +149,7 @@ security delete-generic-password -s hugwatch -a daou-password
 - **트레이 아이콘**을 누르면 오른쪽 아래에 창이 떠요. 우클릭하면 열기 / 설정 / 종료 메뉴가 나와요
 - 창 오른쪽 위 띄워두기 버튼을 누르면 안 닫히는 창이 되고, 끌어서 옮길 수 있어요. 📌로 맨 위 고정을 켜고 꺼요
 - 글자 크기: **Ctrl + = / Ctrl + - / Ctrl + 0**
-- 병합 추적은 **[Git for Windows](https://git-scm.com/download/win)**가 깔려 있어야 해요. 저장소 폴더 예: `%USERPROFILE%\work, %USERPROFILE%\source\repos`
+- 병합 추적은 [Git for Windows](https://git-scm.com/download/win) 가 깔려 있어야 해요. 저장소 폴더 예: `%USERPROFILE%\work, %USERPROFILE%\source\repos`
 - 토큰·비밀번호는 **자격 증명 관리자**(일반 자격 증명 `HugWatch:…`)에, 설정·기록은 `%APPDATA%\HugWatch`에 저장돼요
 
 ### 완전히 지우기
