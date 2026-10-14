@@ -420,8 +420,9 @@ public static class Sources
     {
         var res = new Dictionary<string, string>();
         foreach (var root in s.Roots.Where(Directory.Exists))
-            foreach (var d in Directory.GetDirectories(root))
-                if (Directory.Exists(Path.Combine(d, ".git")) && !res.ContainsKey(Path.GetFileName(d))) res[Path.GetFileName(d)] = d;
+            // 저장소 폴더 자체를 넣었으면 그것만, 아니면 바로 아래 저장소들
+            foreach (var d in Directory.Exists(Path.Combine(root, ".git")) ? new[] { root } : Directory.GetDirectories(root))
+                if (Directory.Exists(Path.Combine(d, ".git")) && Path.GetFileName(d.TrimEnd('\\', '/')) is var n && !res.ContainsKey(n)) res[n] = d;
         return res;
     }
 

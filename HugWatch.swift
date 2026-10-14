@@ -241,6 +241,7 @@ func mail() async throws -> [Item] {
 func localRepos() -> [String: String] {
     var out: [String: String] = [:]
     for root in repoRoots {
+        if FileManager.default.fileExists(atPath: "\(root)/.git") { out[(root as NSString).lastPathComponent] = root; continue }
         for name in (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [] where FileManager.default.fileExists(atPath: "\(root)/\(name)/.git") {
             out[name] = out[name] ?? "\(root)/\(name)"
         }
@@ -452,7 +453,7 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
     }
     @Published var busy = false
     @Published var tick = 0
-    @Published var notifOff: String?
+    @Published var notifOff = false
     @Published var candidates: [(id: String, note: String)] = []
     // 우클릭으로 숨긴 항목 ("섹션/id"). 화면에서만 빼고 감시·알림 기준값은 그대로
     @Published var hidden = Set(store.stringArray(forKey: "hidden") ?? []) {
@@ -500,9 +501,7 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
     init() {
         if demo { seedDemo(); return }
         guard !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { ok, err in
-            Task { @MainActor in self.notifOff = ok ? nil : "맥 알림 꺼짐 · 시스템 설정 → 알림 → HugWatch 허용" + (err.map { " (\($0.localizedDescription))" } ?? "") }
-        }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in Task { @MainActor in self.refreshNotif() } }
         Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in Task { @MainActor in await self.check() } }
         if email.isEmpty && daou.isEmpty { DispatchQueue.main.async { SettingsWindow.shared.show(self) } }
         Task { await check() }
@@ -548,6 +547,14 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
         ]
         todos = [Todo(text: "ABC-151 정렬 옵션 API 확인"), Todo(text: "디자인 QA 피드백 반영"), Todo(text: "주간 회고 작성")]
         lastCheck = now.addingTimeInterval(-60)
+    }
+
+    // 거절했으면 빨간 줄. 시스템 설정에서 켜고 오면 팝오버 열 때 다시 확인해서 지움
+    func refreshNotif() {
+        UNUserNotificationCenter.current().getNotificationSettings { st in
+            let off = st.authorizationStatus == .denied
+            Task { @MainActor in self.notifOff = off }
+        }
     }
 
     func markRead(_ source: String) {
@@ -641,6 +648,7 @@ let look: [String: (icon: String, color: Color)] = [
     "Jira 할당": ("checklist", .green), "내 작업 병합": ("arrow.triangle.merge", .orange),
 ]
 
+let notifSettings = "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "")"
 func open(_ url: String) { if !demo, let u = URL(string: url) { NSWorkspace.shared.open(u) } }
 
 struct Row: View {
@@ -1242,13 +1250,13 @@ struct Panel: View {
                 default: list(tab.source)
                 }
             }
-            if let n = w.notifOff { Text(n).z(11).foregroundStyle(.red) }
+            if w.notifOff { Button("맥 알림이 꺼져 있어요 · 눌러서 켜기") { open(notifSettings) }.buttonStyle(.borderless).z(11).foregroundStyle(.red) }
             Divider()
             HStack(spacing: 12) {
                 Button { SettingsWindow.shared.show(w) } label: { Label("설정", systemImage: "gearshape") }
                 Spacer()
                 if w.events.contains(where: { !$0.read }) { Button("모두 읽음") { w.events = w.events.map { var e = $0; e.read = true; return e } } }
-                Button("알림 설정") { open("x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? "")") }
+                Button("알림 설정") { open(notifSettings) }
                 Button("종료") { NSApp.terminate(nil) }
             }
             .buttonStyle(.borderless).z(11)
@@ -1270,7 +1278,7 @@ struct Panel: View {
         .onChange(of: onTop) { if floating { FloatPanel.shared.setOnTop($1) } }
         .fixedSize()
         .onGeometryChange(for: CGSize.self) { $0.size } action: { if floating { FloatPanel.shared.fit($0) } }
-        .onAppear { w.badge = false }
+        .onAppear { w.badge = false; w.refreshNotif() }
     }
 
     // 칩: 색은 보라 하나만. 선택 = 진하게 · 새 알림 = 연보라 + 점 · 항목 있음 = 회색 · 비었음 = 흐리게
