@@ -22,6 +22,17 @@ var jira: String { site(pref("jiraSite")) }
 var bbWorkspace: String { pref("bbWorkspace") }
 var daou: String { site(pref("daouURL")) }       // 다우오피스 (선택)
 var daouId: String { pref("daouId") }
+let myJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY created DESC"
+
+// 탭 아래 바로가기: 웹에서 전체 보기
+func goto(_ source: String) -> (label: String, url: String)? {
+    switch source {
+    case "PR 리뷰": ("Bitbucket 내 PR", "https://bitbucket.org/dashboard/pullrequests")
+    case "메일": daou.isEmpty ? nil : ("다우오피스 메일함", "\(daou)/app/mail")
+    case "Jira 할당": jira.isEmpty ? nil : ("Jira 내게 할당된 일", "\(jira)/issues/?jql=\(myJQL.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")")
+    default: nil
+    }
+}
 var repoRoots: [String] {                        // 병합 추적할 git 저장소들이 있는 폴더
     let raw = pref("repoRoots")
     return (raw.isEmpty ? "~/work, ~/github, ~/Developer, ~/projects" : raw).split(separator: ",")
@@ -182,7 +193,7 @@ func myPRs() async throws -> [Item] {
 
 func jiraAssigned() async throws -> [Item] {
     var c = URLComponents(string: "\(jira)/rest/api/3/search/jql")!
-    c.queryItems = [.init(name: "jql", value: "assignee = currentUser() AND statusCategory != Done ORDER BY created DESC"),
+    c.queryItems = [.init(name: "jql", value: myJQL),
                     .init(name: "fields", value: "summary,status"), .init(name: "maxResults", value: "50")]
     let auth = "\(email):\(try secret("jira-token"))"
     // 인증 실패해도 검색은 익명으로 200 + 빈 목록을 줘서, 로그인부터 확인
@@ -499,6 +510,7 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
 
     // 사용법 GIF 용 가짜 데이터 (실제 사람·회사·저장소 아님)
     func seedDemo() {
+        store.set("example.atlassian.net", forKey: "jiraSite"); store.set("mail.example.com", forKey: "daouURL")  // 바로가기 링크 보이게
         let now = Date(), url = "https://example.com"
         sections = [
             Section(id: "PR 리뷰", items: [
@@ -1416,6 +1428,10 @@ struct Panel: View {
         }
         if items.count > 8 { Text("외 \(items.count - 8)개").z(11).foregroundStyle(.secondary) }
         hiddenSection(source)
+        if let g = goto(source) {
+            Button("\(g.label) ↗") { open(g.url) }.buttonStyle(.borderless).z(11).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing).padding(.top, 4)
+        }
     }
 
     @ViewBuilder func work(_ active: [WorkGroup], done: Int) -> some View {

@@ -339,6 +339,20 @@ public class PopupWindow : Window
         }
         if (items.Count > 8) body.Children.Add(UiKit.T($"외 {items.Count - 8}개", 11, P.Sub));
         HiddenSection(body, src);
+        // 탭 아래 바로가기: 웹에서 전체 보기
+        (string Label, string Url)? go = src switch
+        {
+            "PR 리뷰" => ("Bitbucket 내 PR", "https://bitbucket.org/dashboard/pullrequests"),
+            "메일" when W.S.Daou != "" => ("다우오피스 메일함", $"{W.S.Daou}/app/mail"),
+            "Jira 할당" when W.S.Jira != "" => ("Jira 내게 할당된 일", $"{W.S.Jira}/issues/?jql={Uri.EscapeDataString(Logic.MyJql)}"),
+            _ => null,
+        };
+        if (go is { } g)
+        {
+            var link = UiKit.Click(UiKit.T(g.Label + " ↗", 11, P.Sub), () => Tray.Open(g.Url), pad: new Thickness(2, 4, 2, 2));
+            link.HorizontalAlignment = HorizontalAlignment.Right;
+            body.Children.Add(link);
+        }
     }
 
     void HiddenSection(Panel body, string src)

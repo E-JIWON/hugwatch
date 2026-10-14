@@ -167,6 +167,8 @@ public static class Creds
 
 public static class Logic
 {
+    public const string MyJql = "assignee = currentUser() AND statusCategory != Done ORDER BY created DESC";
+
     public const string TicketRe = @"[A-Z][A-Z0-9]+-[0-9]+";
     // 단계 브랜치 = develop · develop/1.4.0(-studio) · release/3.6.1 · master · main. develop/feature-… 같은 임시 동기화 브랜치는 제외
     public const string Mainline = @"^((develop|release)(/[0-9][^/]*)?|master|main)$";
@@ -371,7 +373,7 @@ public static class Sources
         var auth = $"{s.Email}:{Creds.Need("jira-token")}";
         // 인증 실패해도 검색은 익명으로 200 + 빈 목록을 줘서, 로그인부터 확인
         try { await Net.Json($"{s.Jira}/rest/api/3/myself", auth); } catch { throw new Exception("Jira 인증 실패 — 토큰 다시 넣기"); }
-        var jql = Uri.EscapeDataString("assignee = currentUser() AND statusCategory != Done ORDER BY created DESC");
+        var jql = Uri.EscapeDataString(Logic.MyJql);
         var j = await Net.Json($"{s.Jira}/rest/api/3/search/jql?jql={jql}&fields=summary,status&maxResults=50", auth);
         return Net.Arr(j, "issues").Select(i =>
         {
