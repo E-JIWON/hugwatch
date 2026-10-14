@@ -27,15 +27,26 @@ jobs:
           $p = Start-Process -FilePath out/HugWatch.exe -ArgumentList '--selftest' -Wait -PassThru
           Get-Content out/selftest.log
           if ($p.ExitCode -ne 0) { exit 1 }
+      - name: 설치 프로그램 (Inno Setup → HugWatch-Setup.exe)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $env:HUGWATCH_VERSION = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: HugWatch-windows
-          path: out/HugWatch.exe
+          path: |
+            out/HugWatch.exe
+            out/HugWatch-Setup.exe
       - name: Releases 에 첨부
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: out/HugWatch.exe
+          files: |
+            out/HugWatch.exe
+            out/HugWatch-Setup.exe
 
   macos:
     runs-on: macos-15
