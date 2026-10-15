@@ -121,7 +121,10 @@ public class Watcher
         var sent = new HashSet<string>();  // 같은 티켓 브랜치 여러 개 → 같은 알림 한 번만
         foreach (var i in items)
         {
-            if (describe(old.GetValueOrDefault(i.Id), i) is not { } d || !sent.Add(d.Item1)) continue;
+            // 같은 커밋을 다른 id(다른 폴더의 같은 저장소 등)로 본 적 있으면 그걸 이전 값으로: 옛날 병합이 '새로' 알림 오지 않게
+            var sha = name == "내 작업 병합" ? i.Fp.Split('|')[0] : "";
+            var prev = old.GetValueOrDefault(i.Id) ?? (sha == "" ? null : old.Values.Where(v => v.StartsWith(sha + "|")).MaxBy(v => v.Length));
+            if (describe(prev, i) is not { } d || !sent.Add(d.Item1)) continue;
             Badge = true;
             St.Events.Insert(0, new Event { Source = name, Title = d.Item1, Sub = d.Item2, Url = i.Url });
             if (St.Events.Count > 50) St.Events.RemoveRange(50, St.Events.Count - 50);

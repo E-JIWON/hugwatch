@@ -247,7 +247,9 @@ func localRepos() -> [String: String] {
     var out: [String: String] = [:]
     for root in repoRoots {
         if FileManager.default.fileExists(atPath: "\(root)/.git") { out[(root as NSString).lastPathComponent] = root; continue }
-        for name in (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [] where FileManager.default.fileExists(atPath: "\(root)/\(name)/.git") {
+        // .git 이 폴더인 것만: worktree(.git 파일)는 본 저장소와 같은 브랜치라 또 잡으면 옛날 병합이 '새로' 알림 옴
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []
+        where (try? URL(fileURLWithPath: "\(root)/\(name)/.git").resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
             out[name] = out[name] ?? "\(root)/\(name)"
         }
     }
@@ -621,7 +623,10 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
         guard let old else { return }  // 첫 실행은 기준값만 저장
         var sent = Set<String>()  // 같은 티켓 브랜치 여러 개 → 같은 알림 한 번만
         for i in items {
-            guard let (title, body) = describe(old[i.id], i).map({ ($0.0, $0.1) }), sent.insert(title).inserted else { continue }
+            // 같은 커밋을 다른 id(다른 폴더의 같은 저장소 등)로 본 적 있으면 그걸 이전 값으로: 옛날 병합이 '새로' 알림 오지 않게
+            let sha = name == Tab.work.source ? String(i.fp.prefix { $0 != "|" }) : ""
+            let prev = old[i.id] ?? (sha.isEmpty ? nil : old.values.filter { $0.hasPrefix(sha + "|") }.max { $0.count < $1.count })
+            guard let (title, body) = describe(prev, i).map({ ($0.0, $0.1) }), sent.insert(title).inserted else { continue }
             badge = true
             events = Array(([Event(source: name, title: title, sub: body, url: i.url, date: Date())] + events).prefix(50))
             let c = UNMutableNotificationContent()
