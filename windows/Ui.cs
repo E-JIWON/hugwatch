@@ -344,7 +344,7 @@ public class PopupWindow : Window
         {
             "PR 리뷰" => ("Bitbucket 내 PR", "https://bitbucket.org/dashboard/pullrequests"),
             "메일" when W.S.Daou != "" => ("다우오피스 메일함", $"{W.S.Daou}/app/mail"),
-            "Jira 할당" when W.S.Jira != "" => ("Jira 내게 할당된 일", $"{W.S.Jira}/issues/?jql={Uri.EscapeDataString(Logic.MyJql)}"),
+            "Jira 할당" when W.S.Jira != "" => ("Jira 내게 할당된 일", $"{W.S.Jira}/issues/?jql={Uri.EscapeDataString(W.S.Jql)}"),
             _ => null,
         };
         if (go is { } g)
@@ -566,7 +566,7 @@ public class SettingsWindow : Window
     }
 
     static Watcher W => Watcher.I;
-    readonly TextBox email = new(), jiraSite = new(), bbWs = new(), daouUrl = new(), daouId = new(), roots = new();
+    readonly TextBox email = new(), jiraSite = new(), jiraJql = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 80 }, bbWs = new(), daouUrl = new(), daouId = new(), roots = new();
     readonly PasswordBox jiraToken = new(), bbToken = new(), daouPw = new();
     readonly CheckBox autoStart = new() { Content = "Windows 시작할 때 자동 실행" };
     readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray, Margin = new Thickness(0, 8, 0, 0) };
@@ -605,6 +605,7 @@ public class SettingsWindow : Window
         Header("Jira · 나에게 할당된 일", "'API 토큰 만들기'(범위 없는 일반 토큰). 만료일은 최대 1년");
         Field("사이트 주소", jiraSite, "company.atlassian.net");
         Field("API 토큰", jiraToken, "붙여넣기 · 비워두면 그대로");
+        Field("JQL (선택)", jiraJql, "비우면 완료 안 된 내 일 · Jira 웹 필터 JQL 을 넣으면 그 화면과 같아져요");
         Link("토큰 만들기 ↗", tokenPage);
         Header("Bitbucket · 내 PR 리뷰", "'범위가 있는 API 토큰 만들기' → 앱 Bitbucket → 권한 read:user, read:pullrequest");
         Field("워크스페이스", bbWs, "bitbucket.org/여기 부분");
@@ -631,7 +632,7 @@ public class SettingsWindow : Window
     void Load()
     {
         var s = W.S;
-        email.Text = s.Email; jiraSite.Text = s.JiraSite; bbWs.Text = s.BbWorkspace; daouUrl.Text = s.DaouUrl; daouId.Text = s.DaouId; roots.Text = s.RepoRoots;
+        email.Text = s.Email; jiraSite.Text = s.JiraSite; jiraJql.Text = s.JiraJql; bbWs.Text = s.BbWorkspace; daouUrl.Text = s.DaouUrl; daouId.Text = s.DaouId; roots.Text = s.RepoRoots;
         autoStart.IsChecked = s.AutoStart;
         jiraToken.ToolTip = Creds.Has("jira-token") ? "저장됨 · 바꾸려면 새로 붙여넣기" : "붙여넣기";
         bbToken.ToolTip = Creds.Has("bitbucket-token") ? "저장됨 · 바꾸려면 새로 붙여넣기" : "붙여넣기";
@@ -642,7 +643,7 @@ public class SettingsWindow : Window
     async Task Save()
     {
         var s = W.S;
-        s.Email = email.Text.Trim(); s.JiraSite = jiraSite.Text.Trim(); s.BbWorkspace = bbWs.Text.Trim(); s.DaouUrl = daouUrl.Text.Trim(); s.DaouId = daouId.Text.Trim(); s.RepoRoots = roots.Text.Trim();
+        s.Email = email.Text.Trim(); s.JiraSite = jiraSite.Text.Trim(); s.JiraJql = jiraJql.Text.Trim(); s.BbWorkspace = bbWs.Text.Trim(); s.DaouUrl = daouUrl.Text.Trim(); s.DaouId = daouId.Text.Trim(); s.RepoRoots = roots.Text.Trim();
         s.AutoStart = autoStart.IsChecked == true;
         W.SaveSettings();
         foreach (var (key, box) in new[] { ("jira-token", jiraToken), ("bitbucket-token", bbToken), ("daou-password", daouPw) })

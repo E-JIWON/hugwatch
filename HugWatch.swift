@@ -24,7 +24,9 @@ var jira: String { site(pref("jiraSite")) }
 var bbWorkspace: String { pref("bbWorkspace") }
 var daou: String { site(pref("daouURL")) }       // 다우오피스 (선택)
 var daouId: String { pref("daouId") }
-let myJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY created DESC"
+let defaultJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY created DESC"
+// 설정에서 바꿀 수 있음: Jira 웹에서 쓰는 필터 JQL 을 넣으면 목록 · 바로가기가 똑같아짐 (줄바꿈은 공백으로)
+var myJQL: String { let q = pref("jiraJQL").split(whereSeparator: \.isWhitespace).joined(separator: " "); return q.isEmpty ? defaultJQL : q }
 
 // 탭 아래 바로가기: 웹에서 전체 보기
 func goto(_ source: String) -> (label: String, url: String)? {
@@ -203,7 +205,8 @@ func jiraAssigned() async throws -> [Item] {
     let j = try await getJSON(c.url!, auth: auth)
     return (dig(j, "issues") as? [Any] ?? []).map { i in
         let key = str(i, "key"), status = str(i, "fields.status.name")
-        let tone = status.contains("완료") ? "green" : str(i, "fields.status.statusCategory.key") == "indeterminate" ? "blue" : "gray"
+        let cat = str(i, "fields.status.statusCategory.key")
+        let tone = status.contains("완료") || cat == "done" ? "green" : cat == "indeterminate" ? "blue" : "gray"
         return Item(id: key, title: str(i, "fields.summary"), sub: key, url: "\(jira)/browse/\(key)", fp: "1", tag: status, tone: tone)
     }
 }
@@ -582,6 +585,8 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
         if demo { lastCheck = Date(); return }
         guard !busy else { return }
         busy = true
+        // JQL 을 바꾸면 새로 보이는 이슈가 '새로 할당됨' 으로 몰려오지 않게 기준값부터 다시
+        if store.string(forKey: "jql.used") != myJQL { store.removeObject(forKey: "fp.Jira 할당"); store.set(myJQL, forKey: "jql.used") }
         let bs = branches
         let on = (pr: !email.isEmpty && !bbWorkspace.isEmpty && hasSecret("bitbucket-token"),
                   jira: !email.isEmpty && !jira.isEmpty && hasSecret("jira-token"),
@@ -1037,6 +1042,7 @@ struct SettingsView: View {
     @ObservedObject var w: Watcher
     @AppStorage("email", store: store) private var emailV = ""
     @AppStorage("jiraSite", store: store) private var jiraSite = ""
+    @AppStorage("jiraJQL", store: store) private var jiraJQL = ""
     @AppStorage("bbWorkspace", store: store) private var bbWS = ""
     @AppStorage("daouURL", store: store) private var daouURL = ""
     @AppStorage("daouId", store: store) private var daouIdV = ""
@@ -1071,8 +1077,9 @@ struct SettingsView: View {
         SwiftUI.Section {
             TextField("사이트 주소", text: $jiraSite, prompt: Text("company.atlassian.net"))
             secretField("API 토큰", $jiraToken, "jira-token")
+            TextField("JQL (선택)", text: $jiraJQL, prompt: Text("비우면 완료 안 된 내 일"), axis: .vertical).lineLimit(1...4)
             Link("토큰 만들기 ↗", destination: URL(string: "https://id.atlassian.com/manage-profile/security/api-tokens")!)
-        } header: { Text("Jira · 나에게 할당된 일") } footer: { note("'API 토큰 만들기'(범위 없는 일반 토큰). 만료일은 최대 1년") }
+        } header: { Text("Jira · 나에게 할당된 일") } footer: { note("'API 토큰 만들기'(범위 없는 일반 토큰). 만료일은 최대 1년\nJQL: Jira 웹에서 쓰는 필터의 JQL 을 붙여넣으면 앱 목록이 그 화면과 똑같아져요") }
     }
 
     var bitbucketSection: some View {

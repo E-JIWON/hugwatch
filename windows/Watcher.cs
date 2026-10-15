@@ -72,6 +72,8 @@ public class Watcher
     {
         if (Busy) return;
         Busy = true;
+        // JQL 을 바꾸면 새로 보이는 이슈가 '새로 할당됨' 으로 몰려오지 않게 기준값부터 다시
+        if (St.JqlUsed != S.Jql) { St.Fp.Remove("Jira 할당"); St.JqlUsed = S.Jql; }
         Changed?.Invoke();
         var s = S;
         var manual = St.Branches.ToList();

@@ -61,6 +61,7 @@ public class Settings
 {
     public string Email { get; set; } = "";        // Atlassian 계정 (Jira·Bitbucket 공통)
     public string JiraSite { get; set; } = "";
+    public string JiraJql { get; set; } = "";       // 비우면 Logic.MyJql. Jira 웹 필터 JQL 을 넣으면 목록이 그 화면과 같아짐
     public string BbWorkspace { get; set; } = "";
     public string DaouUrl { get; set; } = "";      // 다우오피스 (선택)
     public string DaouId { get; set; } = "";
@@ -70,6 +71,7 @@ public class Settings
     public bool AutoStart { get; set; }
 
     public string Jira => Logic.Site(JiraSite);
+    public string Jql => Regex.Replace(JiraJql ?? "", @"\s+", " ").Trim() is { Length: > 0 } q ? q : Logic.MyJql;
     public string Daou => Logic.Site(DaouUrl);
     public IEnumerable<string> Roots =>
         (string.IsNullOrWhiteSpace(RepoRoots) ? @"%USERPROFILE%\work, %USERPROFILE%\source\repos, %USERPROFILE%\github, %USERPROFILE%\projects" : RepoRoots)
@@ -86,6 +88,7 @@ public class State
     public List<string> Branches { get; set; } = new();
     public Dictionary<string, string> Summaries { get; set; } = new();
     public Dictionary<string, string> Shas { get; set; } = new();
+    public string JqlUsed { get; set; } = "";
 }
 
 public static class Store
@@ -378,12 +381,13 @@ public static class Sources
         // 인증 실패해도 검색은 익명으로 200 + 빈 목록을 줘서, 로그인부터 확인
         try { await Net.Json($"{s.Jira}/rest/api/3/myself", auth); }
         catch (Exception e) { throw new Exception(e.Message.StartsWith("HTTP 40") ? "Jira 인증 실패 — 이메일 · 토큰 확인 후 ↻" : $"Jira 연결 실패 · {e.Message}"); }
-        var jql = Uri.EscapeDataString(Logic.MyJql);
+        var jql = Uri.EscapeDataString(s.Jql);
         var j = await Net.Json($"{s.Jira}/rest/api/3/search/jql?jql={jql}&fields=summary,status&maxResults=50", auth);
         return Net.Arr(j, "issues").Select(i =>
         {
             var key = Net.Str(i, "key"); var status = Net.Str(i, "fields.status.name");
-            var tone = status.Contains("완료") ? "green" : Net.Str(i, "fields.status.statusCategory.key") == "indeterminate" ? "blue" : "gray";
+            var cat = Net.Str(i, "fields.status.statusCategory.key");
+            var tone = status.Contains("완료") || cat == "done" ? "green" : cat == "indeterminate" ? "blue" : "gray";
             return new Item { Id = key, Title = Net.Str(i, "fields.summary"), Sub = key, Url = $"{s.Jira}/browse/{key}", Fp = "1", Tag = status, Tone = tone };
         }).ToList();
     }
