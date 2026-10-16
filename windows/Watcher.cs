@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 
@@ -82,14 +83,18 @@ public class Watcher
         if (s.Email != "" && s.BbWorkspace != "" && Creds.Has("bitbucket-token"))
             sources.Add(("PR 리뷰", () => Sources.MyPRs(s),
                 (old, i) => old != null && Logic.PrChange(old, i.Fp) is { } c ? ($"{Logic.Ticket(i.Title) ?? "PR"} · {c}", i.Detail == "" ? i.Title : i.Detail) : null));
-        if (s.Daou != "" && s.DaouId != "" && Creds.Has("daou-password"))
-        {
-            // 내 PR 의 Bitbucket 알림 메일은 PR 탭이 이미 알려줘서 알림 안 함 (목록엔 남김)
-            var prs = All("PR 리뷰").Select(p => p.Title).Where(t => t != "").ToList();
-            sources.Add(("메일", () => Sources.Mail(s), (old, i) => old == null && !prs.Any(t => i.Title.Contains(t)) ? ($"새 메일 · {i.Sub}", i.Title) : null));
-        }
         if (s.Email != "" && s.Jira != "" && Creds.Has("jira-token"))
             sources.Add(("Jira 할당", () => Sources.JiraAssigned(s), (old, i) => old == null ? ($"{i.Id} 새로 할당됨", i.Title) : null));
+        var result = new List<Section>();
+        List<Item> Now(string id) => result.FirstOrDefault(x => x.Id == id)?.Items ?? All(id);  // 이번 확인 결과 (없으면 지난번)
+        if (s.Daou != "" && s.DaouId != "" && Creds.Has("daou-password"))
+            // 내 PR 의 Bitbucket 메일 · 나에게 할당 메일은 PR · Jira 알림과 겹쳐서 메일 알림은 안 보냄 (목록엔 남김). 그래서 PR · Jira 뒤에
+            sources.Add(("메일", () => Sources.Mail(s), (old, i) =>
+            {
+                var dup = Now("PR 리뷰").Any(p => p.Title != "" && i.Title.Contains(p.Title))
+                    || (i.Title.Contains("할당") && Now("Jira 할당").Any(j => Regex.IsMatch(i.Title, $@"\b{Regex.Escape(j.Id)}\b")));
+                return old == null && !dup ? ($"새 메일 · {i.Sub}", i.Title) : null;
+            }));
         sources.Add(("내 작업 병합", async () =>
             {
                 var items = await Task.Run(() => Sources.WorkStatus(s, St, manual));  // git 은 느려서 백그라운드 (화면 안 멈추게)
@@ -98,7 +103,6 @@ public class Watcher
             },
             (old, i) => (old != null || i.NotifyNew) && Logic.WorkChange(old, i.Fp) is { } c ? ($"{i.Group} {c}", Summary(i.Group) ?? i.Title) : null));
 
-        var result = new List<Section>();
         foreach (var (name, fetch, describe) in sources)
         {
             var sec = new Section { Id = name };

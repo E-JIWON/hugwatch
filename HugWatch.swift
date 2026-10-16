@@ -593,19 +593,23 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
         let on = (pr: !email.isEmpty && !bbWorkspace.isEmpty && hasSecret("bitbucket-token"),
                   jira: !email.isEmpty && !jira.isEmpty && hasSecret("jira-token"),
                   mail: !daou.isEmpty && !daouId.isEmpty && hasSecret("daou-password"))
-        // 출처마다: 가져오기 + (이전 fp, 항목) → 알림 (제목, 내용) 또는 nil
+        var out: [Section] = []
+        func now(_ id: String) -> [Item] { out.first { $0.id == id }?.items ?? all(id) }  // 이번 확인 결과 (없으면 지난번)
+        // 출처마다: 가져오기 + (이전 fp, 항목) → 알림 (제목, 내용) 또는 nil. 메일은 PR · Jira 결과를 보고 겹치는 알림을 빼서 맨 뒤쪽
         var sources: [(String, () async throws -> [Item], (String?, Item) -> (String, String)?)] = [
             ("PR 리뷰", myPRs, { old, i in old.flatMap { prChange($0, i.fp) }.map { ("\(ticket(i.title) ?? "PR") · \($0)", i.detail.isEmpty ? i.title : i.detail) } }),
-            ("메일", mail, { [prs = all("PR 리뷰").map(\.title).filter { !$0.isEmpty }] old, i in
-                old == nil && !prs.contains { i.title.contains($0) } ? ("새 메일 · \(i.sub)", i.title) : nil }),
             ("Jira 할당", jiraAssigned, { old, i in old == nil ? ("\(i.id) 새로 할당됨", i.title) : nil }),
+            ("메일", mail, { old, i in
+                // 내 PR 의 Bitbucket 메일 · 나에게 할당 메일은 PR · Jira 알림과 겹쳐서 메일 알림은 안 보냄 (목록엔 남김)
+                let dup = now("PR 리뷰").contains { !$0.title.isEmpty && i.title.contains($0.title) }
+                    || (i.title.contains("할당") && now("Jira 할당").contains { i.title.range(of: "\\b\($0.id)\\b", options: .regularExpression) != nil })
+                return old == nil && !dup ? ("새 메일 · \(i.sub)", i.title) : nil }),
             ("내 작업 병합", { let items = await Task.detached { workStatus(bs) }.value
                               await self.loadSummaries(Set(items.compactMap { ticket($0.group) }))
                               return items },
              { old, i in old != nil || i.notifyNew ? workChange(old, i.fp).map { ("\(i.group) \($0)", self.summary(i.group) ?? i.title) } : nil }),
         ]
         sources.removeAll { ($0.0 == "PR 리뷰" && !on.pr) || ($0.0 == "Jira 할당" && !on.jira) || ($0.0 == "메일" && !on.mail) }
-        var out: [Section] = []
         for (name, fetch, describe) in sources {
             var s = Section(id: name)
             do { s.items = try await fetch(); diff(name, s.items, describe) } catch { s.error = error.localizedDescription }
