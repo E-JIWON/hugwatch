@@ -82,7 +82,13 @@ public class Watcher
         var sources = new List<(string Name, Func<Task<List<Item>>> Fetch, Func<string?, Item, (string, string)?> Describe)>();
         if (s.Email != "" && s.BbWorkspace != "" && Creds.Has("bitbucket-token"))
             sources.Add(("PR 리뷰", () => Sources.MyPRs(s),
-                (old, i) => old != null && Logic.PrChange(old, i.Fp) is { } c ? ($"{Logic.Ticket(i.Title) ?? "PR"} · {c}", i.Detail == "" ? i.Title : i.Detail) : null));
+                (old, i) =>
+                {
+                    if (old == null || Logic.PrChange(old, i.Fp) is not { } c) return null;
+                    // 본문: PR 제목 + 지금 리뷰 상태. 코멘트 누적 수는 빼서 제목의 '누가 새로 달았나'와 헷갈리지 않게
+                    var state = string.Join(" · ", i.Detail.Split(" · ").Where(x => !x.StartsWith("코멘트 ")));
+                    return ($"{Logic.Ticket(i.Title) ?? "PR"} · {c}", state == "" ? i.Title : $"{i.Title}\n{state}");
+                }));
         if (s.Email != "" && s.Jira != "" && Creds.Has("jira-token"))
             sources.Add(("Jira 할당", () => Sources.JiraAssigned(s), (old, i) => old == null ? ($"{i.Id} 새로 할당됨", i.Title) : null));
         var result = new List<Section>();

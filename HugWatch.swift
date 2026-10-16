@@ -287,12 +287,12 @@ let mainline = #"^((develop|release)(/[0-9][^/]*)?|master|main)$"#
 
 // Bitbucket 병합 커밋 "Merged in <브랜치> (pull request #N)": 두 번째 부모 = 브랜치 마지막 커밋, N = PR 번호
 // (PR 병합 후 브랜치가 지워져도 이걸로 추적·링크)
-func mergeInfo(_ path: String, _ branch: String) -> (head: String, pr: String?)? {
-    let line = (try? run("/usr/bin/git", ["-C", path, "log", "--all", "--merges", "-1", "-F", "--grep=Merged in \(branch) (pull request", "--format=%P|%s"])) ?? ""
-    let parts = line.split(separator: "|", maxSplits: 1).map(String.init)
-    let parents = parts.first?.split(separator: " ") ?? []
-    guard parts.count == 2, parents.count >= 2 else { return nil }
-    return (String(parents[1]), parts[1].range(of: #"(?<=pull request #)[0-9]+"#, options: .regularExpression).map { String(parts[1][$0]) })
+func mergeInfo(_ path: String, _ branch: String) -> (head: String, pr: String?, merge: String)? {
+    let line = (try? run("/usr/bin/git", ["-C", path, "log", "--all", "--merges", "-1", "-F", "--grep=Merged in \(branch) (pull request", "--format=%H|%P|%s"])) ?? ""
+    let parts = line.split(separator: "|", maxSplits: 2).map(String.init)
+    let parents = parts.count > 1 ? parts[1].split(separator: " ") : []
+    guard parts.count == 3, parents.count >= 2 else { return nil }
+    return (String(parents[1]), parts[2].range(of: #"(?<=pull request #)[0-9]+"#, options: .regularExpression).map { String(parts[2][$0]) }, parts[0])
 }
 
 // 최근 30일 안에 PR로 병합된 "내" 브랜치 (병합 후 지워져 로컬에 없는 것까지). 브랜치 마지막 커밋 작성자로 판별
@@ -413,7 +413,12 @@ func workStatus(_ manual: [String]) -> [Item] {
             .split(separator: "\n").map(String.init)
             .filter { $0 != branch && $0.range(of: mainline, options: .regularExpression) != nil }
         let stg = stages(into, remote)
-        return Item(id: e, title: "\(repo) · \(branch)", sub: stg.last { $0.hit != nil }?.hit ?? "아직 병합 전",
+        // 단계 전인데 PR 은 병합됨 = feature 묶음 브랜치 등에 들어간 것. "아직 병합 전" 대신 어디 들어갔는지
+        let hit = stg.last { $0.hit != nil }?.hit
+        let parked = hit != nil ? nil : merged.flatMap { m in
+            ((try? run("/usr/bin/git", ["-C", path, "branch", "-r", "--contains", m.merge, "--format=%(refname:lstrip=3)"])) ?? "")
+                .split(separator: "\n").map(String.init).first { $0 != branch && $0 != "HEAD" } }
+        return Item(id: e, title: "\(repo) · \(branch)", sub: hit ?? parked.map { "\($0)에 병합됨" } ?? "아직 병합 전",
                     url: url, fp: "\(sha)|\(into.sorted().joined(separator: ","))", group: group,
                     dots: ["develop", "release", "master"].map { s in stg.first { $0.stage == s }.map { $0.hit != nil } },
                     notifyNew: isAuto)
@@ -623,7 +628,10 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
         func now(_ id: String) -> [Item] { out.first { $0.id == id }?.items ?? all(id) }  // 이번 확인 결과 (없으면 지난번)
         // 출처마다: 가져오기 + (이전 fp, 항목) → 알림 (제목, 내용) 또는 nil. 메일은 PR · Jira 결과를 보고 겹치는 알림을 빼서 맨 뒤쪽
         var sources: [(String, () async throws -> [Item], (String?, Item) -> (String, String)?)] = [
-            ("PR 리뷰", myPRs, { old, i in old.flatMap { prChange($0, i.fp) }.map { ("\(ticket(i.title) ?? "PR") · \($0)", i.detail.isEmpty ? i.title : i.detail) } }),
+            ("PR 리뷰", myPRs, { old, i in old.flatMap { prChange($0, i.fp) }.map { change in
+                // 본문: PR 제목 + 지금 리뷰 상태. 코멘트 누적 수는 빼서 제목의 '누가 새로 달았나'와 헷갈리지 않게
+                let state = i.detail.components(separatedBy: " · ").filter { !$0.hasPrefix("코멘트 ") }.joined(separator: " · ")
+                return ("\(ticket(i.title) ?? "PR") · \(change)", state.isEmpty ? i.title : "\(i.title)\n\(state)") } }),
             ("Jira 할당", jiraAssigned, { old, i in old == nil ? ("\(i.id) 새로 할당됨", i.title) : nil }),
             ("메일", mail, { old, i in
                 // 내 PR 의 Bitbucket 메일 · 나에게 할당 메일은 PR · Jira 알림과 겹쳐서 메일 알림은 안 보냄 (목록엔 남김)

@@ -460,14 +460,15 @@ public static class Sources
     }
 
     // Bitbucket 병합 커밋 "Merged in <브랜치> (pull request #N)": 두 번째 부모 = 브랜치 마지막 커밋, N = PR 번호
-    public static (string Head, string? Pr)? MergeInfo(string path, string branch)
+    public static (string Head, string? Pr, string Merge)? MergeInfo(string path, string branch)
     {
-        var line = Git.Run(path, "log", "--all", "--merges", "-1", "-F", $"--grep=Merged in {branch} (pull request", "--format=%P|%s") ?? "";
-        var parts = line.Split('|', 2);
-        var parents = parts[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length != 2 || parents.Length < 2) return null;
-        var m = Regex.Match(parts[1], @"pull request #([0-9]+)");
-        return (parents[1], m.Success ? m.Groups[1].Value : null);
+        var line = Git.Run(path, "log", "--all", "--merges", "-1", "-F", $"--grep=Merged in {branch} (pull request", "--format=%H|%P|%s") ?? "";
+        var parts = line.Split('|', 3);
+        if (parts.Length != 3) return null;
+        var parents = parts[1].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parents.Length < 2) return null;
+        var m = Regex.Match(parts[2], @"pull request #([0-9]+)");
+        return (parents[1], m.Success ? m.Groups[1].Value : null, parts[0]);
     }
 
     // 최근 30일 안에 PR로 병합된 "내" 브랜치. 브랜치 마지막 커밋이 내가 쓴 일반 커밋일 때만 (병합 커밋이면 남의 묶음 브랜치)
@@ -544,9 +545,13 @@ public static class Sources
             if (!remotes.TryGetValue(path, out var remote)) remotes[path] = remote = Git.Lines(Git.Run(path, "branch", "-r", "--format=%(refname:lstrip=3)")).ToList();
             var into = Git.Lines(Git.Run(path, "branch", "-r", "--contains", sha, "--format=%(refname:lstrip=3)")).Where(b => b != branch && Regex.IsMatch(b, Logic.Mainline)).OrderBy(b => b, StringComparer.Ordinal).ToList();
             var stg = Logic.Stages(into, remote);
+            // 단계 전인데 PR 은 병합됨 = feature 묶음 브랜치 등에 들어간 것. "아직 병합 전" 대신 어디 들어갔는지
+            var hit = stg.LastOrDefault(x => x.Hit != null).Hit;
+            var parked = hit != null || merged == null ? null
+                : Git.Lines(Git.Run(path, "branch", "-r", "--contains", merged.Value.Merge, "--format=%(refname:lstrip=3)")).FirstOrDefault(b => b != branch && b != "HEAD");
             items.Add(new Item
             {
-                Id = e, Title = $"{repo} · {branch}", Sub = stg.LastOrDefault(x => x.Hit != null).Hit ?? "아직 병합 전", Url = url,
+                Id = e, Title = $"{repo} · {branch}", Sub = hit ?? (parked != null ? $"{parked}에 병합됨" : "아직 병합 전"), Url = url,
                 Fp = $"{sha}|{string.Join(",", into)}", Group = group, NotifyNew = isAuto,
                 Dots = new[] { "develop", "release", "master" }.Select(sname => stg.Any(x => x.Stage == sname) ? stg.First(x => x.Stage == sname).Hit != null : (bool?)null).ToArray(),
             });
