@@ -186,13 +186,36 @@ public static class Logic
     public static string? Ticket(string s) { var m = Regex.Match(s, TicketRe); return m.Success ? m.Value : null; }
 
     // PR fp "코멘트/승인/수정요청" 이 늘어난 것 → "코멘트 +1, 승인 +1"
+    // PR fp "코멘트수/승인수/수정요청수|이름:코멘트수,…|승인한 사람,…|수정요청한 사람,…" (누가 했는지 알림에 쓰려고)
+    public static string PrFp(int cm, List<string> ok, List<string> ask, Dictionary<string, int> by)
+    {
+        static string Clean(string s) => new(s.Where(c => !",:|".Contains(c)).ToArray());
+        var who = string.Join(",", by.OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => $"{Clean(x.Key)}:{x.Value}"));
+        return $"{cm}/{ok.Count}/{ask.Count}|{who}|{string.Join(",", ok.Select(Clean).OrderBy(x => x, StringComparer.Ordinal))}|{string.Join(",", ask.Select(Clean).OrderBy(x => x, StringComparer.Ordinal))}";
+    }
+
+    // → "서진 코멘트 +1, CodeRabbit 코멘트 +2, 서진 수정 요청" (사람 먼저, 봇은 뒤)
     public static string? PrChange(string old, string @new)
     {
-        int[] o = old.Split('/').Select(x => int.TryParse(x, out var v) ? v : -1).ToArray();
-        int[] n = @new.Split('/').Select(x => int.TryParse(x, out var v) ? v : -1).ToArray();
-        if (o.Length != 3 || n.Length != 3 || o.Contains(-1) || n.Contains(-1)) return null;
-        var labels = new[] { "코멘트", "승인", "수정 요청" };
-        var parts = Enumerable.Range(0, 3).Where(k => n[k] > o[k]).Select(k => $"{labels[k]} +{n[k] - o[k]}").ToList();
+        var o = old.Split('|'); var n = @new.Split('|');
+        if (o.Length != 4 || n.Length != 4)  // 예전 fp(개수만)면 개수로
+        {
+            int[] a = o[0].Split('/').Select(x => int.TryParse(x, out var v) ? v : -1).ToArray();
+            int[] b = n[0].Split('/').Select(x => int.TryParse(x, out var v) ? v : -1).ToArray();
+            if (a.Length != 3 || b.Length != 3 || a.Contains(-1) || b.Contains(-1)) return null;
+            var labels = new[] { "코멘트", "승인", "수정 요청" };
+            var cp = Enumerable.Range(0, 3).Where(k => b[k] > a[k]).Select(k => $"{labels[k]} +{b[k] - a[k]}").ToList();
+            return cp.Count == 0 ? null : string.Join(", ", cp);
+        }
+        static Dictionary<string, int> Counts(string s) => s.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(p => p.Split(':'))
+            .Where(kv => kv.Length == 2).GroupBy(kv => kv[0]).ToDictionary(g => g.Key, g => int.TryParse(g.First()[1], out var v) ? v : 0);
+        static HashSet<string> Names(string s) => s.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
+        static bool Bot(string s) => s.Contains("coderabbit", StringComparison.OrdinalIgnoreCase) || s.Contains("bot", StringComparison.OrdinalIgnoreCase);
+        static IEnumerable<string> HumansFirst(IEnumerable<string> xs) => xs.OrderBy(Bot).ThenBy(x => x, StringComparer.Ordinal);
+        var oc = Counts(o[1]); var nc = Counts(n[1]);
+        var parts = HumansFirst(nc.Keys).Where(k => nc[k] > oc.GetValueOrDefault(k)).Select(k => $"{k} 코멘트 +{nc[k] - oc.GetValueOrDefault(k)}").ToList();
+        parts.AddRange(HumansFirst(Names(n[3]).Except(Names(o[3]))).Select(x => $"{x} 수정 요청"));
+        parts.AddRange(HumansFirst(Names(n[2]).Except(Names(o[2]))).Select(x => $"{x} 승인"));
         return parts.Count == 0 ? null : string.Join(", ", parts);
     }
 
@@ -370,7 +393,7 @@ public static class Sources
             {
                 Id = $"{repo}#{Net.Str(pr, "id")}", Title = Net.Str(pr, "title"),
                 Sub = $"{repo} · 코멘트 {cm} · 승인 {ok.Count}" + (ask.Count > 0 ? $" · 수정요청 {ask.Count}" : ""),
-                Url = Net.Str(pr, "links.html.href"), Fp = $"{cm}/{ok.Count}/{ask.Count}", Detail = string.Join(" · ", parts), People = people,
+                Url = Net.Str(pr, "links.html.href"), Fp = Logic.PrFp(cm, ok, ask, by), Detail = string.Join(" · ", parts), People = people,
             });
         }
         return outList;
@@ -542,6 +565,10 @@ public static class SelfTest
         void Check(bool ok, string what) { if (!ok) fails.Add(what); }
         Check(Logic.PrChange("1/0/0", "2/1/0") == "코멘트 +1, 승인 +1", "prChange 증가");
         Check(Logic.PrChange("1/1/0", "1/1/0") == null && Logic.PrChange("2/1/0", "1/1/0") == null, "prChange 변화 없음/감소");
+        var fp1 = Logic.PrFp(1, new(), new(), new() { ["서진"] = 1 });
+        var fp2 = Logic.PrFp(4, new() { "CodeRabbit" }, new() { "서진" }, new() { ["서진"] = 2, ["CodeRabbit"] = 2 });
+        Check(Logic.PrChange(fp1, fp2) == "서진 코멘트 +1, CodeRabbit 코멘트 +2, 서진 수정 요청, CodeRabbit 승인", "prChange 누가");
+        Check(Logic.PrChange("1/0/0", fp2) == "코멘트 +3, 승인 +1, 수정 요청 +1" && Logic.PrChange(fp2, fp2) == null, "prChange 예전 fp");
         Check(Logic.WorkChange("abc|release/5.0.0", "abc|master,release/5.0.0") == "→ master 반영됨", "workChange master");
         Check(Logic.WorkChange(null, "abc|develop/1.4.0") == "→ develop/1.4.0 병합됨" && Logic.WorkChange(null, "abc|") == null, "workChange 처음");
         Check(Logic.WorkChange("abc|develop/1.4.0", "def|develop/1.4.0") == "브랜치에 새 커밋" && Logic.WorkChange("abc|x", "abc|x") == null, "workChange 새 커밋");

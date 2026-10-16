@@ -75,10 +75,34 @@ let ticketRe = #"[A-Z][A-Z0-9]+-[0-9]+"#
 func ticket(_ s: String) -> String? { s.range(of: ticketRe, options: .regularExpression).map { String(s[$0]) } }
 
 // PR fp "코멘트/승인/수정요청" 이 늘어난 것 → "코멘트 +1, 승인 +1"
+// PR fp "코멘트수/승인수/수정요청수|이름:코멘트수,…|승인한 사람,…|수정요청한 사람,…" (누가 했는지 알림에 쓰려고)
+func prFP(_ cm: Int, _ ok: [String], _ ask: [String], _ by: [String: Int]) -> String {
+    func clean(_ s: String) -> String { s.filter { !",:|".contains($0) } }
+    let who: String = by.keys.sorted().map { "\(clean($0)):\(by[$0]!)" }.joined(separator: ",")
+    let oks: String = ok.map(clean).sorted().joined(separator: ",")
+    let asks: String = ask.map(clean).sorted().joined(separator: ",")
+    return "\(cm)/\(ok.count)/\(ask.count)|\(who)|\(oks)|\(asks)"
+}
+
+// → "서진 코멘트 +1, CodeRabbit 코멘트 +2, 서진 수정 요청" (사람 먼저, 봇은 뒤)
 func prChange(_ old: String, _ new: String) -> String? {
-    let o = old.split(separator: "/").compactMap { Int($0) }, n = new.split(separator: "/").compactMap { Int($0) }
-    guard o.count == 3, n.count == 3 else { return nil }
-    let parts = zip(["코멘트", "승인", "수정 요청"], zip(o, n)).compactMap { label, v in v.1 > v.0 ? "\(label) +\(v.1 - v.0)" : nil }
+    let o = old.components(separatedBy: "|"), n = new.components(separatedBy: "|")
+    guard o.count == 4, n.count == 4 else {  // 예전 fp(개수만)면 개수로
+        let a = o[0].split(separator: "/").compactMap { Int($0) }, b = n[0].split(separator: "/").compactMap { Int($0) }
+        guard a.count == 3, b.count == 3 else { return nil }
+        let parts = zip(["코멘트", "승인", "수정 요청"], zip(a, b)).compactMap { label, v in v.1 > v.0 ? "\(label) +\(v.1 - v.0)" : nil }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+    func counts(_ s: String) -> [String: Int] {
+        Dictionary(s.split(separator: ",").compactMap { p in let kv = p.split(separator: ":"); return kv.count == 2 ? (String(kv[0]), Int(kv[1]) ?? 0) : nil }) { a, _ in a }
+    }
+    func names(_ s: String) -> Set<String> { Set(s.split(separator: ",").map(String.init)) }
+    let bot = { (s: String) in s.localizedCaseInsensitiveContains("coderabbit") || s.localizedCaseInsensitiveContains("bot") }
+    let byHuman = { (a: String, b: String) in bot(a) != bot(b) ? !bot(a) : a < b }
+    let oc = counts(o[1]), nc = counts(n[1])
+    var parts = nc.keys.sorted(by: byHuman).compactMap { k in nc[k]! > oc[k, default: 0] ? "\(k) 코멘트 +\(nc[k]! - oc[k, default: 0])" : nil }
+    parts += names(n[3]).subtracting(names(o[3])).sorted(by: byHuman).map { "\($0) 수정 요청" }
+    parts += names(n[2]).subtracting(names(o[2])).sorted(by: byHuman).map { "\($0) 승인" }
     return parts.isEmpty ? nil : parts.joined(separator: ", ")
 }
 
@@ -192,7 +216,7 @@ func myPRs() async throws -> [Item] {
         let detail = parts.joined(separator: " · ")
         out.append(Item(id: "\(repo)#\(str(pr, "id"))", title: str(pr, "title"),
                         sub: "\(repo) · 코멘트 \(cm) · 승인 \(ok.count)" + (ask.isEmpty ? "" : " · 수정요청 \(ask.count)"),
-                        url: str(pr, "links.html.href"), fp: "\(cm)/\(ok.count)/\(ask.count)", detail: detail, people: people))
+                        url: str(pr, "links.html.href"), fp: prFP(cm, ok, ask, by), detail: detail, people: people))
     }
     return out
 }
@@ -1549,6 +1573,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if CommandLine.arguments.contains("--selftest") {
             precondition(prChange("1/0/0", "2/1/0") == "코멘트 +1, 승인 +1" && prChange("1/1/0", "1/1/0") == nil && prChange("2/1/0", "1/1/0") == nil)
+            let fp1 = prFP(1, [], [], ["서진": 1]), fp2 = prFP(4, ["CodeRabbit"], ["서진"], ["서진": 2, "CodeRabbit": 2])
+            precondition(prChange(fp1, fp2) == "서진 코멘트 +1, CodeRabbit 코멘트 +2, 서진 수정 요청, CodeRabbit 승인", "누가 했나")
+            precondition(prChange("1/0/0", fp2) == "코멘트 +3, 승인 +1, 수정 요청 +1" && prChange(fp2, fp2) == nil, "예전 fp")
             precondition(workChange("abc|release/5.0.0", "abc|master,release/5.0.0") == "→ master 반영됨")
             precondition(workChange(nil, "abc|develop/1.4.0") == "→ develop/1.4.0 병합됨" && workChange(nil, "abc|") == nil)
             precondition(workChange("abc|develop/1.4.0", "def|develop/1.4.0") == "브랜치에 새 커밋" && workChange("abc|x", "abc|x") == nil)
