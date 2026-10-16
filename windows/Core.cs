@@ -209,10 +209,11 @@ public static class Logic
         if (n == null) return null;
         var o = Parse(old);
         static int Rank(string b) => b.StartsWith("master") || b.StartsWith("main") ? 3 : b.StartsWith("release") ? 2 : 1;
-        var added = n.Value.into.Except(o?.into ?? new HashSet<string>()).ToList();
-        if (added.Count > 0)
+        static int Top(IEnumerable<string> s) => s.Select(Rank).DefaultIfEmpty(0).Max();
+        // 단계(D < R < M)가 올라갈 때만. 같은 단계 브랜치가 늘어난 것(release 끼리 forward merge, -studio 등)과 release → develop 역병합은 조용히
+        if (Top(n.Value.into) > Top(o?.into ?? new HashSet<string>()))
         {
-            var best = added.OrderBy(Rank).ThenBy(b => b, NaturalComparer.Instance).Last();
+            var best = n.Value.into.Where(b => Rank(b) == Top(n.Value.into)).OrderBy(b => b, NaturalComparer.Instance).Last();
             return Rank(best) == 3 ? $"→ {best} 반영됨" : $"→ {best} 병합됨";
         }
         if (o != null && o.Value.sha != n.Value.sha) return "브랜치에 새 커밋";
@@ -544,6 +545,7 @@ public static class SelfTest
         Check(Logic.WorkChange("abc|release/5.0.0", "abc|master,release/5.0.0") == "→ master 반영됨", "workChange master");
         Check(Logic.WorkChange(null, "abc|develop/1.4.0") == "→ develop/1.4.0 병합됨" && Logic.WorkChange(null, "abc|") == null, "workChange 처음");
         Check(Logic.WorkChange("abc|develop/1.4.0", "def|develop/1.4.0") == "브랜치에 새 커밋" && Logic.WorkChange("abc|x", "abc|x") == null, "workChange 새 커밋");
+        Check(Logic.WorkChange("abc|release/1.3.0", "abc|develop/1.4.0,release/1.3.0,release/1.4.0") == null, "workChange 같은 단계 · 역병합");
         Check(Logic.Ticket("me/ABC-123-fix") == "ABC-123" && Logic.Ticket("feature/2.3.1") == null, "ticket");
         Check(Logic.WebUrl("https://user@bitbucket.org/team/my-app.git", "me/ABC-1") == "https://bitbucket.org/team/my-app/branch/me/ABC-1", "webURL bitbucket");
         Check(Logic.WebUrl("git@github.com:someone/my-app.git", "main") == "https://github.com/someone/my-app/tree/main", "webURL github");

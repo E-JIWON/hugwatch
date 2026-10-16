@@ -91,8 +91,10 @@ func workChange(_ old: String?, _ new: String) -> String? {
     guard let n = parse(new) else { return nil }
     let o = old.flatMap(parse)
     let rank = { (b: String) in b.hasPrefix("master") || b.hasPrefix("main") ? 3 : b.hasPrefix("release") ? 2 : 1 }
-    let added = n.into.subtracting(o?.into ?? [])
-    if let best = added.max(by: { rank($0) != rank($1) ? rank($0) < rank($1) : $0.compare($1, options: .numeric) == .orderedAscending }) {
+    let top = { (s: Set<String>) in s.map(rank).max() ?? 0 }
+    // 단계(D < R < M)가 올라갈 때만. 같은 단계 브랜치가 늘어난 것(release 끼리 forward merge, -studio 등)과 release → develop 역병합은 조용히
+    if top(n.into) > top(o?.into ?? []),
+       let best = n.into.filter({ rank($0) == top(n.into) }).max(by: { $0.compare($1, options: .numeric) == .orderedAscending }) {
         return rank(best) == 3 ? "→ \(best) 반영됨" : "→ \(best) 병합됨"
     }
     if let o, o.sha != n.sha { return "브랜치에 새 커밋" }
@@ -603,7 +605,8 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
                 // 내 PR 의 Bitbucket 메일 · 나에게 할당 메일은 PR · Jira 알림과 겹쳐서 메일 알림은 안 보냄 (목록엔 남김)
                 let dup = now("PR 리뷰").contains { !$0.title.isEmpty && i.title.contains($0.title) }
                     || (i.title.contains("할당") && now("Jira 할당").contains { i.title.range(of: "\\b\($0.id)\\b", options: .regularExpression) != nil })
-                return old == nil && !dup ? ("새 메일 · \(i.sub)", i.title) : nil }),
+                let bot = i.sub.localizedCaseInsensitiveContains("coderabbit")  // 리뷰 봇 코멘트 메일: PR 탭에 이미 있음
+                return old == nil && !dup && !bot ? ("새 메일 · \(i.sub)", i.title) : nil }),
             ("내 작업 병합", { let items = await Task.detached { workStatus(bs) }.value
                               await self.loadSummaries(Set(items.compactMap { ticket($0.group) }))
                               return items },
@@ -626,6 +629,7 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
         store.set(Dictionary(items.map { ($0.id, $0.fp) }) { a, _ in a }, forKey: key)
         guard let old else { return }  // 첫 실행은 기준값만 저장
         var sent = Set<String>()  // 같은 티켓 브랜치 여러 개 → 같은 알림 한 번만
+        var banners: [(String, String, String)] = []
         for i in items {
             // 같은 커밋을 다른 id(다른 폴더의 같은 저장소 등)로 본 적 있으면 그걸 이전 값으로: 옛날 병합이 '새로' 알림 오지 않게
             let sha = name == Tab.work.source ? String(i.fp.prefix { $0 != "|" }) : ""
@@ -633,11 +637,16 @@ func spriteImage(frame: Int = 0, dy: Int = 0, color: NSColor = violet, px: CGFlo
             guard let (title, body) = describe(prev, i).map({ ($0.0, $0.1) }), sent.insert(title).inserted else { continue }
             badge = true
             events = Array(([Event(source: name, title: title, sub: body, url: i.url, date: Date())] + events).prefix(50))
+            banners.append((title, body, i.url))
+        }
+        // 한 번에 3개 넘게 오면 (배포 날 master 반영 여러 건 등) 배너는 하나로 묶음. 새 소식엔 하나씩 남음
+        if banners.count > 2 { banners = [("\(name) \(banners.count)건", banners.map(\.0).joined(separator: "\n"), banners[0].2)] }
+        for (title, body, url) in banners {
             let c = UNMutableNotificationContent()
             c.title = title
             c.body = body
             c.sound = .default
-            c.userInfo = ["url": i.url]
+            c.userInfo = ["url": url]
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
         }
     }
@@ -1543,6 +1552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             precondition(workChange("abc|release/5.0.0", "abc|master,release/5.0.0") == "→ master 반영됨")
             precondition(workChange(nil, "abc|develop/1.4.0") == "→ develop/1.4.0 병합됨" && workChange(nil, "abc|") == nil)
             precondition(workChange("abc|develop/1.4.0", "def|develop/1.4.0") == "브랜치에 새 커밋" && workChange("abc|x", "abc|x") == nil)
+            precondition(workChange("abc|release/1.3.0", "abc|develop/1.4.0,release/1.3.0,release/1.4.0") == nil, "같은 단계 · 역병합은 조용히")
             precondition(stageLine(["develop/feature-2.3.6-to-develop-1.4.0"], ["develop/1.4.0", "master"]) == "develop ✗ → master ✗")
             precondition("develop/1.4.0-studio".range(of: mainline, options: .regularExpression) != nil && "develop/feature-x".range(of: mainline, options: .regularExpression) == nil)
             precondition(ticket("me/ABC-123-fix") == "ABC-123" && ticket("feature/2.3.1") == nil)

@@ -93,7 +93,8 @@ public class Watcher
             {
                 var dup = Now("PR 리뷰").Any(p => p.Title != "" && i.Title.Contains(p.Title))
                     || (i.Title.Contains("할당") && Now("Jira 할당").Any(j => Regex.IsMatch(i.Title, $@"\b{Regex.Escape(j.Id)}\b")));
-                return old == null && !dup ? ($"새 메일 · {i.Sub}", i.Title) : null;
+                var bot = i.Sub.Contains("coderabbit", StringComparison.OrdinalIgnoreCase);  // 리뷰 봇 코멘트 메일: PR 탭에 이미 있음
+                return old == null && !dup && !bot ? ($"새 메일 · {i.Sub}", i.Title) : null;
             }));
         sources.Add(("내 작업 병합", async () =>
             {
@@ -123,6 +124,7 @@ public class Watcher
         St.Fp[name] = items.GroupBy(i => i.Id).ToDictionary(g => g.Key, g => g.First().Fp);
         if (old == null) return;  // 처음엔 기준값만 저장
         var sent = new HashSet<string>();  // 같은 티켓 브랜치 여러 개 → 같은 알림 한 번만
+        var banners = new List<(string Title, string Body, string Url)>();
         foreach (var i in items)
         {
             // 같은 커밋을 다른 id(다른 폴더의 같은 저장소 등)로 본 적 있으면 그걸 이전 값으로: 옛날 병합이 '새로' 알림 오지 않게
@@ -132,8 +134,11 @@ public class Watcher
             Badge = true;
             St.Events.Insert(0, new Event { Source = name, Title = d.Item1, Sub = d.Item2, Url = i.Url });
             if (St.Events.Count > 50) St.Events.RemoveRange(50, St.Events.Count - 50);
-            Notify?.Invoke(d.Item1, d.Item2, i.Url);
+            banners.Add((d.Item1, d.Item2, i.Url));
         }
+        // 한 번에 3개 넘게 오면 (배포 날 master 반영 여러 건 등) 풍선은 하나로 묶음. 새 소식엔 하나씩 남음
+        if (banners.Count > 2) banners = new() { ($"{name} {banners.Count}건", string.Join("\n", banners.Select(b => b.Title)), banners[0].Url) };
+        foreach (var b in banners) Notify?.Invoke(b.Title, b.Body, b.Url);
     }
 
     // 병합 탭 티켓들의 Jira 제목·상태

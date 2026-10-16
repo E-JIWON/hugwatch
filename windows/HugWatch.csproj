@@ -12,7 +12,7 @@
     <RootNamespace>HugWatch</RootNamespace>
     <StartupObject>HugWatch.Program</StartupObject>
     <ApplicationIcon>HugWatch.ico</ApplicationIcon>
-    <Version>0.1.3</Version>
+    <Version>0.1.4</Version>
     <Product>HugWatch</Product>
     <!-- 설치 없이 exe 하나 (.NET 런타임 포함) -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
